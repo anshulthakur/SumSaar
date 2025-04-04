@@ -1,0 +1,14 @@
+[tool.poetry]
+name = "SumSaar"
+version = "0.0.1"
+description = "Summed and summarized Samachar (News)"
+authors = ["Anshul Thakur <anshulhakurjourneyendless@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+langchain = "^0.3.22"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
