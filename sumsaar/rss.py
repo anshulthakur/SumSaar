@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from datetime import datetime
 from bs4 import BeautifulSoup
 
-from settings import PROJECT_DIRS
+from settings import PROJECT_DIRS, OLLAMA_URL
 
 from ollama import Client
 
@@ -60,7 +60,7 @@ def parse_feed(url, datefilter= datetime.now().date(), max_entries=5):
 
 def digest():
     client = Client(
-            host='http://srsw.cdot.in:11434',
+            host=OLLAMA_URL,
             )
     
     # system_prompt = ("You are a seasoned and highly objective journalist and editor who ghostwrites one minute summaries from the provided news article. "
