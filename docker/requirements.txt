@@ -1,2 +1,4 @@
 feedparser
-langchain
+ollama
+beautifulsoup4
+html5lib
