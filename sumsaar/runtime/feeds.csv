@@ -1,4 +1,2 @@
-https://feeds.feedburner.com/ndtvnews-latest
-#https://indianexpress.com/section/india/feed/
-#https://indianexpress.com/section/world/feed/
-#https://indianexpress.com/section/news-today/feed/
+link,feed_type
+https://feeds.feedburner.com/ndtvnews-latest,story

@@ -2,3 +2,9 @@ feedparser
 ollama
 beautifulsoup4
 html5lib
+requests
+nltk 
+scikit-learn 
+gensim 
+scipy
+pandas
