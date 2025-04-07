@@ -8,3 +8,5 @@ scikit-learn
 gensim 
 scipy
 pandas
+newspaper4k
+lxml-html-clean

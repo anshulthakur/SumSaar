@@ -9,7 +9,6 @@ from bs4 import BeautifulSoup
 from crawler import Crawl4Ai
 
 from settings import PROJECT_DIRS, OLLAMA_URL, CRAWLER_URL
-
 from ollama import Client
 
 feeds_dir = PROJECT_DIRS.get('runtime')
@@ -24,6 +23,22 @@ import json
 #filter_date = datetime(2025, 4, 5)  # Example filter date
 
 from enum import Enum
+
+from newspaper import Article
+
+#import requests
+#from bs4 import BeautifulSoup
+#import spacy
+
+#nlp = spacy.load('en_core_web_sm')
+
+# def extract_main_content(url):
+#     response = requests.get(url)
+#     soup = BeautifulSoup(response.content, 'html.parser')
+#     paragraphs = soup.find_all('p')
+#     content = ' '.join([para.get_text() for para in paragraphs])
+#     doc = nlp(content)
+#     return doc.text
 
 class FeedType(str, Enum):
     story = 'story'
@@ -59,12 +74,12 @@ def get_feed_list():
         feed_list = [FeedSource.model_validate(row) for row in reader]
     return feed_list
 
-def parse_feed(feed, datefilter= datetime.now().date(), max_entries=5):
+def parse_feed(feed, datefilter= datetime.now().date(), max_entries=10):
     date_format = "%a, %d %b %Y %H:%M:%S %z"  # Adjust format based on feed
     feed_obj = feedparser.parse(feed.link)
     entries = 0
     for entry in feed_obj.entries:
-        if entries >= max_entries:
+        if max_entries>0 and entries >= max_entries:
             break
         #print(entry)
         if hasattr(entry, "published"):
@@ -80,13 +95,22 @@ def parse_feed(feed, datefilter= datetime.now().date(), max_entries=5):
                 if feed.feed_type != FeedType.story or len(sanitized_content)==0:
                     #Crawl the content out of the website using the link
                     try:
-                        request = {
-                                    "urls": entry.link,
-                                    "priority": 10,
-                                }
-                        result = Crawl4Ai(base_url=CRAWLER_URL).submit_sync(request_data=request)
-                        sanitized_content = result["result"]["markdown"]
+                        print(f'Try to crawl news for {entry.link}')
+                        # request = {
+                        #             "urls": entry.link,
+                        #             "priority": 10,
+                        #         }
+                        # result = Crawl4Ai(base_url=CRAWLER_URL).submit_and_wait(request_data=request)
+                        # sanitized_content = result["result"]["markdown"]
+                        # sanitized_content = extract_main_content(entry.link)
+
+                        article = Article(url=entry.link)
+                        article.download()
+                        article.parse()
+                        sanitized_content = article.text
+                        #print(sanitized_content)
                     except:
+                        print(f'Error crawling news for {entry.link}')
                         sanitized_content = ''
                     pass
                 if len(sanitized_content)>0:
@@ -149,7 +173,7 @@ def digest():
     feed_list = get_feed_list()
     ii = 0
     for feed in feed_list:
-        for feed_item in parse_feed(feed):
+        for feed_item in parse_feed(feed, max_entries=0):
             response = llm.client.chat(model='deepseek-r1:14b', messages=[
                             {'role': 'system', 'content': llm.system_prompt},
                             {'role': 'user', 'content': feed_item.content}

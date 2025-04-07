@@ -286,7 +286,7 @@ services:
         condition: service_completed_successfully
 
   crawl4ai:
-    image: unclecode/crawl4ai:all
+    image: unclecode/crawl4ai:basic-amd64
     ports:
       - "11235:11235"
     environment:
