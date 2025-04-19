@@ -18,8 +18,11 @@
 # Fetching Items
 
 ## RSS Feeds
-The first method, RSS Feeds. Almost all NEWS sources have RSS feeds. Some feeds will have the entire story as content in the feed, others syndicate only the titles and links, or truncated texts. This information is provided by the user while constructing the feed list.
+The first method, RSS Feeds. Almost all NEWS sources have RSS feeds. Some feeds will have the entire story as content in the feed, others syndicate only the titles and links, or truncated texts. This information is provided by the user while constructing the feed list. For the articles which are not fully syndicated in RSS feeds, we would parse them using some form of crawling/parsing and extracting the article content from the page. 
 
-# Comparing similarity
+# Comparing similarity and de-duplication
 I could ask the LLM to compare the articles pairwise and bin them accordingly (that looks like an agent with tool-calling, or LLM-in-the-loop). Or, I could delve into the research on NLP etc and figure out an algorithmic way of doing that.
+
+# Collating and re-writing the article
+Once the articles have been binned on the basis of similarity, the LLM may rewrite the entire piece from the information obtained from the articles in the bin.
 

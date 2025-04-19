@@ -1,15 +1,16 @@
 import feedparser
 import os
 import csv
-from pydantic import BaseModel
-from typing import List
+from pydantic import BaseModel, Field, TypeAdapter
+from typing import List, Optional, TypeAlias
 
 from datetime import datetime
 from bs4 import BeautifulSoup
-from crawler import Crawl4Ai
 
-from settings import PROJECT_DIRS, OLLAMA_URL, CRAWLER_URL
+from settings import PROJECT_DIRS, OLLAMA_URL
 from ollama import Client
+
+from crawler import scrape_with_playwright
 
 feeds_dir = PROJECT_DIRS.get('runtime')
 
@@ -25,7 +26,9 @@ import json
 from enum import Enum
 
 from newspaper import Article
+from dateutil import parser
 
+import traceback
 #import requests
 #from bs4 import BeautifulSoup
 #import spacy
@@ -54,6 +57,10 @@ class FeedItem(BaseModel):
     link: str
     content: str
     date: str
+    id: Optional[int]=Field(gt=0)
+
+ArticleList: TypeAlias = list[FeedItem]
+ArticleListModel = TypeAdapter(ArticleList)
 
 class LLMSummary(BaseModel):
   keywords: List[str]
@@ -74,17 +81,33 @@ def get_feed_list():
         feed_list = [FeedSource.model_validate(row) for row in reader]
     return feed_list
 
-def parse_feed(feed, datefilter= datetime.now().date(), max_entries=10):
+def parse_date(pub_date_str):
+    try:
+        return parser.parse(pub_date_str)
+    except Exception as e:
+        print(f"Error parsing date: {e}")
+        return None
+
+def parse_feed(feed, datefilter= datetime.now().date(), max_entries=10, index=None):
     date_format = "%a, %d %b %Y %H:%M:%S %z"  # Adjust format based on feed
     feed_obj = feedparser.parse(feed.link)
     entries = 0
     for entry in feed_obj.entries:
+        if entry.title in index:
+            #Already parsed this one before.
+            print(f'Skip {entry.link}')
+            entries += 1
+            continue
         if max_entries>0 and entries >= max_entries:
             break
         #print(entry)
         if hasattr(entry, "published"):
-            published_datetime = datetime.strptime(entry.published, date_format)
+            print(f'Fetching: {entry.link}')
+            published_datetime = parse_date(entry.published)
             if published_datetime.date() == datefilter:
+                #print(entry)
+                #Extract title
+                title = entry.title
                 # Extracting and sanitizing HTML content
                 raw_content = next(
                     (content['value'] for content in entry.get('content', []) if content['type'] == 'text/html'),
@@ -95,7 +118,7 @@ def parse_feed(feed, datefilter= datetime.now().date(), max_entries=10):
                 if feed.feed_type != FeedType.story or len(sanitized_content)==0:
                     #Crawl the content out of the website using the link
                     try:
-                        print(f'Try to crawl news for {entry.link}')
+                        print(f'Crawling for {entry.link}')
                         # request = {
                         #             "urls": entry.link,
                         #             "priority": 10,
@@ -110,15 +133,21 @@ def parse_feed(feed, datefilter= datetime.now().date(), max_entries=10):
                         sanitized_content = article.text
                         #print(sanitized_content)
                     except:
-                        print(f'Error crawling news for {entry.link}')
-                        sanitized_content = ''
+                        print(f'Error crawling news for {entry.link}. Try playwright')
+                        #Try playwright crawler
+                        article = scrape_with_playwright(url=entry.link)
+                        if article is not None:
+                            sanitized_content = article.text
+                        else:
+                            sanitized_content = ''
                     pass
                 if len(sanitized_content)>0:
                     entries += 1
-                    yield FeedItem(title= entry.title,
+                    yield FeedItem(title= title,
                                     link= entry.link,
                                     content=sanitized_content,
-                                    date=entry.published)
+                                    date=entry.published,
+                                    id=None)
                     
 
 class LLM(object):
@@ -166,37 +195,68 @@ class DedupLLM(LLM):
                               "The reference article is : {reference_article}"
                         )
 
+def fetch(max_entries=0):
+    feed_list = get_feed_list()
+    ii = 0
+    articles = []
+    try:
+        with open(os.path.join(feeds_dir, 'cache.json'), 'r') as fd:
+            articles_json = json.load(fd)
+            articles = ArticleListModel.validate_json(json.dumps(articles_json))
+    except:
+        pass
+    crawled_titles = []
+    for article in articles:
+        ii = max(ii, int(article.id))
+        crawled_titles.append(article.title)
+
+    for feed in feed_list:
+        try:
+            for feed_item in parse_feed(feed, max_entries=max_entries, index=crawled_titles):
+                ii += 1
+                feed_item.id = ii
+                articles.append(feed_item)
+        except:
+            print('Exception occurred')
+            traceback.print_exc()
+
+    with open(os.path.join(feeds_dir, 'cache.json'), 'wb') as fd:
+        #print(type(ArticleListModel.dump_json(articles, indent=2)))
+        fd.write(ArticleListModel.dump_json(articles, indent=2))
+        #fd.write(json.dumps(articles.json(), indent=2))
+
 def digest():
     llm = SummaryLLM(host=OLLAMA_URL)
     
     summaries = []
-    feed_list = get_feed_list()
+    with open(os.path.join(feeds_dir, 'cache.json'), 'r') as fd:
+        articles = json.load(fd)
     ii = 0
-    for feed in feed_list:
-        for feed_item in parse_feed(feed, max_entries=0):
-            response = llm.client.chat(model='deepseek-r1:14b', messages=[
-                            {'role': 'system', 'content': llm.system_prompt},
-                            {'role': 'user', 'content': feed_item.content}
-                        ],
-                        stream=False,
-                        keep_alive='1m',
-                        options={
-                            'num_ctx': 8196,
-                            'repeat_last_n': 0,
-                            'temperature': 0.5,
-                        },
-                        format=LLMSummary.model_json_schema())
-            summary = LLMSummary.model_validate_json(response.message.content)
-            ii += 1
-            summaries.append({'id': ii,
-                              'title': feed_item.title,
-                              'link': feed_item.link,
-                              'summary': {
-                                  'title': summary.title,
-                                  'keywords': summary.keywords,
-                                  'content':summary.summary}
-                            })
-            print(summary)
+    for article in articles:
+        response = llm.client.chat(model='deepseek-r1:14b', messages=[
+                        {'role': 'system', 'content': llm.system_prompt},
+                        {'role': 'user', 'content': article.content}
+                    ],
+                    stream=False,
+                    keep_alive='1m',
+                    options={
+                        'num_ctx': 8196,
+                        'repeat_last_n': 0,
+                        'temperature': 0.5,
+                    },
+                    format=LLMSummary.model_json_schema())
+        summary = LLMSummary.model_validate_json(response.message.content)
+        ii += 1
+        summaries.append({'id': ii,
+                            'title': article.title,
+                            'link': article.link,
+                            'content': article.content,
+                            'summary': {
+                                'title': summary.title,
+                                'keywords': summary.keywords,
+                                'content':summary.summary}
+                        })
+        print(summary)
 
     with open(os.path.join(feeds_dir, 'summaries.json'), 'w') as fd:
         fd.write(json.dumps(summaries, indent=2))
@@ -204,15 +264,15 @@ def digest():
 
 def dedup():
     summaries = []
-    with open(os.path.join(feeds_dir, 'summaries.json'), 'r') as fd:
+    with open(os.path.join(feeds_dir, 'cache.json'), 'r') as fd:
         summaries = json.load(fd)
     llm = DedupLLM()
     # Iterate over articles pairwise without repetition
     for ref_article, compare_article in itertools.combinations(summaries, 2):
-        llm.system_prompt = llm.system_prompt.format(reference_article = ref_article['summary']['content'])
+        llm.system_prompt = llm.system_prompt.format(reference_article = ref_article['content'])
         response = llm.client.chat(model='deepseek-r1:14b', messages=[
                             {'role': 'system', 'content': llm.system_prompt},
-                            {'role': 'user', 'content': compare_article['summary']['content']}
+                            {'role': 'user', 'content': compare_article['content']}
                         ],
                         stream=False,
                         keep_alive='1m',
@@ -229,5 +289,7 @@ def dedup():
             print(f"{compare_article['title']} is UNRELATED to {ref_article['title']}")
 
 if __name__=="__main__":
-    digest()
-    dedup()
+    fetch(max_entries=0)
+    #dedup()
+    #digest()
+    

@@ -10,3 +10,4 @@ scipy
 pandas
 newspaper4k
 lxml-html-clean
+playwright

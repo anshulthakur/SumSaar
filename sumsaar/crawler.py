@@ -4,6 +4,9 @@ import os
 from typing import Dict, Any
 from settings import CRAWLER_URL
 
+from playwright.sync_api import sync_playwright
+import newspaper 
+
 class Crawl4Ai:
     def __init__(self, base_url: str = "http://localhost:11235", api_token: str = None):
         self.base_url = base_url
@@ -67,3 +70,26 @@ class Crawl4Ai:
         )
         response.raise_for_status()
         return response.json()
+    
+class Browser(object):
+    pass
+
+
+def scrape_with_playwright(url):
+    # Using Playwright to render JavaScript
+    content = ''
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        page.goto(url)
+        time.sleep(2) # Allow the javascript to render
+        content = page.content()
+        browser.close()
+
+    # Using Newspaper4k to parse the page content
+    if len(content)>0:
+        article = newspaper.article(url, input_html=content, language='en')
+
+        return article
+    else:
+        return None

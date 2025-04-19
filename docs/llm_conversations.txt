@@ -1,0 +1,137 @@
+[User]
+I'm writing a tool for detecting similar stories across multiple news feeds and putting similar news items into a single bucket for further processing. What method do you think will work best?
+
+[BingGPT]
+That sounds like a fascinating project! Given your goal of grouping similar news stories across multiple feeds, the best approach would likely combine semantic similarity and topic modeling to ensure articles are clustered meaningfully. Here’s a breakdown of the most effective methods:
+
+TF-IDF + Cosine Similarity – This is a strong baseline where you vectorize articles and compare their similarity mathematically. Works well for text with overlapping words but struggles with paraphrased content.
+
+Word Embeddings (Word2Vec, GloVe, FastText) – These models assign words numerical meanings based on their context, making them useful for finding semantic similarity even when wording differs.
+
+Topic Modeling (LDA) – Latent Dirichlet Allocation groups articles based on underlying topics, helping sort news stories into buckets by themes rather than exact phrasing.
+
+Jaccard Similarity on N-grams – Useful for identifying duplicate or near-duplicate stories by comparing shared phrases.
+
+Clustering Algorithms (K-Means, DBSCAN) – These techniques group articles into clusters based on their feature representation, helping categorize related news articles dynamically.
+
+If the feeds are diverse and news articles vary in wording, I’d suggest a combination of Word Embeddings + Clustering for semantic matching and TF-IDF for keyword-based similarity.
+
+Do you want help with implementing this in code?
+
+[User]
+yes. So, I guess there can be some sort of pipeline where we can do multiple such things in steps and finally arrive at a bucket?
+
+[BingGPT]
+Exactly! You can build a multi-step processing pipeline where each stage refines the grouping of news articles to ensure that only similar stories end up in the same bucket. Here's a possible structure for your pipeline:
+
+1. Preprocessing
+Text Cleaning: Remove stopwords, punctuation, and special characters.
+
+Tokenization: Break text into meaningful words or phrases.
+
+Stemming/Lemmatization: Normalize words to their base forms (e.g., "running" → "run").
+
+2. Feature Extraction
+TF-IDF Vectorization: Extract keyword-based features.
+
+Word Embeddings: Convert text into dense vector representations (Word2Vec, GloVe, FastText).
+
+Topic Modeling (LDA): Identify underlying themes in each article.
+
+3. Similarity Computation
+Cosine Similarity (TF-IDF & Word Embeddings): Compute similarity scores between articles.
+
+Jaccard Similarity (N-Grams): Detect overlapping phrases.
+
+4. Clustering & Bucketing
+Hierarchical or K-Means Clustering: Group articles based on feature similarity.
+
+DBSCAN: Detect dense clusters of related news items.
+
+Threshold-Based Filtering: Discard loosely related articles.
+
+5. Post-processing & Validation
+Manual Review (if needed): Fine-tune clustering thresholds.
+
+Scoring & Ranking: Sort stories by relevance within a bucket.
+
+Would you like a code snippet to help implement this in Python?
+
+
+********************
+
+ANOTHER DAY. ANOTHER RESTART
+
+***********************
+
+without using LLMs, how can we determine algorithmically if two textual articles of considerable length are discussing the same thing, but maybe in different words?
+Great question! Without relying on LLMs, you can still determine if two articles are discussing the same topic algorithmically by using a combination of natural language processing (NLP) techniques and statistical methods. Here’s a structured approach:
+
+1. Preprocessing
+Tokenization: Break down both texts into words or phrases.
+
+Stopword Removal: Remove common words like “the,” “is,” “and,” etc.
+
+Stemming/Lemmatization: Reduce words to their base forms (e.g., “running” → “run”).
+
+Part-of-Speech Tagging: Identify nouns, verbs, and other word categories.
+
+2. Vector Representation
+TF-IDF (Term Frequency-Inverse Document Frequency): Represents each article as a weighted vector based on term importance.
+
+Word Embeddings (non-LLM-based), like Word2Vec or GloVe: Maps words to a multidimensional space where semantic similarity is preserved.
+
+Bag-of-Words (BoW): Represents documents as word frequency vectors.
+
+3. Semantic Similarity
+Cosine Similarity: Measures the cosine angle between two text vectors to identify overlap.
+
+Jaccard Similarity: Compares sets of words appearing in both articles.
+
+Latent Semantic Analysis (LSA): Uses singular value decomposition (SVD) to uncover deeper relationships.
+
+4. Entity & Topic Extraction
+Named Entity Recognition (NER): Identifies and compares important entities (people, places, events) in both texts.
+
+Topic Modeling (LDA - Latent Dirichlet Allocation): Extracts major topics and compares their distributions across texts.
+
+5. Structural & Contextual Analysis
+Dependency Parsing: Understand sentence structures and compare syntactic similarities.
+
+Text Summarization & Comparison: Generate summaries using extractive methods and compare them.
+
+Event Extraction: Identify key events and match them between articles.
+
+6. Graph-Based Approaches
+Knowledge Graphs: Identify connections between concepts mentioned in both articles.
+
+Text Graph Similarity: Represent words as nodes and relationships as edges; compare graph structures.
+
+Using a mix of these techniques, you can build an effective similarity detection system without needing LLMs! Would you like a more detailed breakdown of any of these methods?
+
+
+
+## Another day, with something already implemented. But, using LDA gave many false groupings, so I went back and asked:
+
+I want to compare the texts of two articles and see if they're covering the same topic or not. If they're covering the same topic, it is quite possible that both of them essentially contain the same information worded differently. However, it is also possible that each contains facts which are not present in the other article. In terms of sets, I want to know if one article is a subset of the other, a superset of the other, or is there a large intersection among the two with some non-empty difference sets as well. What I don't want to do is to club two articles together when they are not covering the same news. For example, one article may be covering the news of a building collapse in Delhi an the casualties, while the other talks of another collapse in UP. But, the two events are separate. So, I want to be able to distinguish between the two reliably
+Your goal is clear—you want a robust way to determine topic similarity, while also analyzing information coverage (subset, superset, or partial intersection) between articles. You also need a system that avoids false matches, ensuring that similar wording does not mistakenly categorize two distinct events as the same.
+
+Approach
+To achieve this, we’ll use a two-step verification process: 1️⃣ Topic Classification: First, determine whether two articles are about the same event using semantic similarity & entity recognition. 2️⃣ Content Coverage Analysis: If they cover the same event, check if one article is a subset, superset, or has partial overlap using set-based comparisons.
+
+Step 1: Topic Classification (Avoid False Matches)
+Before comparing content coverage, we first ensure both articles actually discuss the same event using: ✅ Named Entity Recognition (NER) – Extract people, locations, dates, key terms and compare overlaps. ✅ Latent Semantic Analysis (LSA) or SBERT – Compare topic embeddings to verify event similarity. ✅ Event Extraction (OpenIE or spaCy) – Identify action-oriented phrases (e.g., "building collapsed", "earthquake struck") to ensure same event focus.
+
+If NER and event similarity confirm a match, proceed to Step 2.
+
+Step 2: Content Coverage Analysis (Subset, Superset, or Partial Overlap)
+Once we’re sure the articles cover the same event, we measure information coverage using: ✅ Jaccard Set Comparison – Compare word/token sets and classify:
+
+Subset (A ⊆ B) → Article A contains a strict subset of facts from B.
+
+Superset (A ⊇ B) → Article A contains additional information beyond B.
+
+Intersection (A ∩ B) → Both contain overlapping facts, but neither is strictly contained in the other. ✅ TF-IDF + Concept Matching – Identify unique terms in each article, helping flag exclusive details missing from one but present in the other.
+
+How This Helps
+🔹 Avoids false grouping (e.g., two distinct building collapses won’t be confused). 🔹 Captures nuance—detects if an article misses key details or if one is just a reworded version of another. 🔹 Detects factual differences—ensuring that partial matches do not imply complete topic overlap.
