@@ -5,9 +5,12 @@ html5lib
 requests
 nltk 
 scikit-learn 
-gensim 
+git+https://github.com/julianpollmann/gensim-modifications.git@numpy2test0
 scipy
 pandas
 newspaper4k
 lxml-html-clean
 playwright
+seaborn
+matplotlib
+spacy
