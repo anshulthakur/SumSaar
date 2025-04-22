@@ -29,6 +29,9 @@ from newspaper import Article
 from dateutil import parser
 
 import traceback
+
+from pipeline import group_articles
+
 #import requests
 #from bs4 import BeautifulSoup
 #import spacy
@@ -66,6 +69,10 @@ class LLMSummary(BaseModel):
   keywords: List[str]
   title: str
   summary: str
+
+class LLMArticle(BaseModel):
+  title: str
+  content: str
 
 class UniqueStatus(str, Enum):
     related = 'RELATED'
@@ -180,6 +187,15 @@ class SummaryLLM(LLM):
                         "Keep the summary concise and free from predefined structures or bullet points. "
                         "If the article does not contain hard news but is more of a lifestyle, entertainment, "
                         "or opinion piece, simply state: 'This is not a news article' without further explanation.")
+
+class CopyWriterLLM(LLM):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.system_prompt = ("Rewrite the following news article while retaining all the relevant details "
+                        "and adding further details from the article provided by the user."
+                        "Provide a clear title to the article as well."
+                        "Keep the tone of the article objective and neutral. Do not modify anything that is quoted and reduce redundancy."
+                        "The reference article is : {reference_article}")
     
 
 class DedupLLM(LLM):
@@ -288,8 +304,67 @@ def dedup():
         else:
             print(f"{compare_article['title']} is UNRELATED to {ref_article['title']}")
 
+def rewrite():
+    rewritten_articles = []
+    similarity_data = {}
+    covered_ids = []
+    llm = CopyWriterLLM()
+
+    with open(os.path.join(feeds_dir, 'similarity_results_combined.json'), 'r') as fd:
+        similarity_data = json.load(fd)
+
+    with open(os.path.join(feeds_dir, 'cache.json'), 'r') as fd:
+        cache = json.load(fd)
+
+    # Sort articles by ID and store (id, title, content)
+    articles = sorted(cache, key=lambda x: x['id'])
+
+    index_to_metadata = {i: (article['id'], article['title'], article['content']) for i, article in enumerate(articles)}
+
+    for article_id in similarity_data:
+        if article_id in covered_ids:
+            #Skip article as it is already covered
+            print(f'Skip {article_id}')
+            continue
+        info = similarity_data[article_id]
+        reference_content = {'title': '',
+                             'content': articles[info["id"]]['content']}
+        
+        if len(info['scores']['LSA']['strong'])>0:
+            for related_id in info['scores']['LSA']['strong']:
+                print('Reference:')
+                print(reference_content)
+
+                print(f'Related: {related_id["id"]}')
+                id, title, content = index_to_metadata[related_id['id']]
+                related_article = content
+                print(related_article)
+                llm.system_prompt = llm.system_prompt.format(reference_article = reference_content['content'])
+                response = llm.client.chat(model='deepseek-r1:14b', messages=[
+                                    {'role': 'system', 'content': llm.system_prompt},
+                                    {'role': 'user', 'content': related_article}
+                                ],
+                                stream=False,
+                                keep_alive='1m',
+                                options={
+                                    'num_ctx': 8196,
+                                    'repeat_last_n': 0,
+                                    'temperature': 0.5,
+                                },
+                                format=LLMArticle.model_json_schema())
+                response_content = LLMArticle.model_validate_json(response.message.content)
+                reference_content = {'title': response_content.title,
+                                     'content': response_content.content}
+                if related_id['id'] not in covered_ids:
+                    covered_ids.append(related_id['id'])
+        rewritten_articles.append(reference_content)
+        if article_id not in covered_ids:
+            covered_ids.append(article_id)
+
 if __name__=="__main__":
-    fetch(max_entries=0)
+    #fetch(max_entries=0)
+    #group_articles()
+    rewrite()
     #dedup()
     #digest()
     

@@ -22,16 +22,25 @@ nltk.download('stopwords')
 nltk.download('wordnet')
 nltk.download('punkt_tab')
 
-with open(os.path.join(feeds_dir, 'cache.json'), 'r') as fd:
-    cache = json.load(fd)
 
-# Sort articles by ID and store (id, title, content)
-articles = sorted(cache, key=lambda x: x['id'])
-article_contents = [article['content'] for article in articles]
+articles = None
+article_contents = None
+index_to_metadata = None 
 
-# Create mapping of index to (id, title)
-index_to_metadata = {i: (article['id'], article['title']) for i, article in enumerate(articles)}
+def load_article_cache():
+    global articles
+    global article_contents
+    global index_to_metadata
 
+    with open(os.path.join(feeds_dir, 'cache.json'), 'r') as fd:
+        cache = json.load(fd)
+
+    # Sort articles by ID and store (id, title, content)
+    articles = sorted(cache, key=lambda x: x['id'])
+    article_contents = [article['content'] for article in articles]
+
+    # Create mapping of index to (id, title)
+    index_to_metadata = {i: (article['id'], article['title'], article['content']) for i, article in enumerate(articles)}
 
 ### **Step 1: Prepare LDA Corpus**
 def prepare_lda_corpus(texts):
@@ -207,7 +216,7 @@ def save_combined_json(categorized_tfidf, categorized_bow, categorized_jaccard, 
                 "bag-of-words": categorized_bow[article_id]["scores"],
                 "Jaccard": categorized_jaccard[article_id]["scores"],
                 "LSA": categorized_lsa[article_id]["scores"],
-                "LDA": categorized_lda[article_id]["scores"],
+                #"LDA": categorized_lda[article_id]["scores"],
             }
         }
 
@@ -216,9 +225,58 @@ def save_combined_json(categorized_tfidf, categorized_bow, categorized_jaccard, 
     with open(filename, "w") as json_file:
         json.dump(combined_data, json_file, indent=4, default=str)
     print(f"✅ Saved: {filename}")
-          
+
+def group_articles():
+    load_article_cache()
+    # Preprocess articles
+    preprocessed_articles = [preprocess(article) for article in article_contents]
+    # Compute TF-IDF & BoW vectors
+    tfidf_matrix = get_tfidf_matrix(preprocessed_articles)
+    bow_matrix = get_bow_matrix(preprocessed_articles)
+
+    # Prepare corpus and train LDA model
+    dictionary, corpus = prepare_lda_corpus(preprocessed_articles)
+    lda_model = train_lda_model(corpus, dictionary)
+
+    # Get topic vectors & compute similarity
+    topic_vectors = get_topic_vectors(lda_model, corpus)
+    lda_similarity = compute_lda_similarity(topic_vectors)
+
+    # Calculate similarity
+    tfidf_similarity = get_similarity(tfidf_matrix)
+    bow_similarity = get_similarity(bow_matrix)
+    jaccard_similarity = get_jaccard_similarity(preprocessed_articles)
+    lsa_similarity = get_lsa_similarity(tfidf_matrix)
+
+    # Find most similar articles for each entry
+    print('Finding most similar articles using TFIDF')
+    most_similar_tfidf = find_most_similar(tfidf_similarity)
+    print('Finding most similar articles using BOW')
+    most_similar_bow = find_most_similar(bow_similarity)
+    print('Finding most similar articles using Jaccard')
+    most_similar_jaccard = find_most_similar(jaccard_similarity)
+    print('Finding most similar articles using Latent Semantic Analysis')
+    most_similar_lsa = find_most_similar(lsa_similarity)
+
+    # Categorize LDA similarities
+    print('Finding most similar articles using Latent Dirichlet Allocation')
+    categorized_lda = categorize_similarity(lda_similarity, strong_threshold=0.75, medium_threshold=0.50)
+
+
+    # Categorize similarity scores for different methods
+    categorized_tfidf = categorize_similarity(tfidf_similarity, strong_threshold=0.85, medium_threshold=0.65)
+    categorized_bow = categorize_similarity(bow_similarity, strong_threshold=0.85, medium_threshold=0.65)
+    categorized_jaccard = categorize_similarity(jaccard_similarity, strong_threshold=0.50, medium_threshold=0.30)
+    categorized_lsa = categorize_similarity(lsa_similarity, strong_threshold=0.75, medium_threshold=0.50)
+
+    # Save combined JSON with all similarity methods
+    save_combined_json(categorized_tfidf, categorized_bow, categorized_jaccard, categorized_lsa, categorized_lda)
+
+
 ### **Main Execution**
 if __name__ == "__main__":
+
+    load_article_cache()
     
     # Preprocess articles
     preprocessed_articles = [preprocess(article) for article in article_contents]

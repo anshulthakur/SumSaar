@@ -10,7 +10,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.decomposition import TruncatedSVD
 from gensim import corpora
-from gensim.models import LdaModel
+from gensim.models import TfidfModel, LdaModel
 
 from settings import PROJECT_DIRS
 feeds_dir = PROJECT_DIRS.get('runtime')
@@ -86,20 +86,36 @@ def prepare_lda_corpus(texts):
     """Convert preprocessed texts into a dictionary and BOW corpus."""
     tokenized_texts = [text.split() for text in texts]
     dictionary = corpora.Dictionary(tokenized_texts)
-    corpus = [dictionary.doc2bow(text) for text in tokenized_texts]
-    return dictionary, corpus
 
-def train_lda_model(corpus, dictionary, num_topics=5):
+    corpus = [dictionary.doc2bow(text) for text in tokenized_texts]
+
+    tfidf_model = TfidfModel(corpus)
+
+    corpus_tfidf = tfidf_model[corpus]
+
+    return dictionary, corpus_tfidf
+
+def train_lda_model(corpus, dictionary, num_topics=15):
     """Train an LDA model to extract topics."""
-    lda_model = LdaModel(corpus=corpus, id2word=dictionary, num_topics=num_topics, passes=10)
+    lda_model = LdaModel(corpus=corpus, id2word=dictionary, num_topics=num_topics, passes=15)
     return lda_model
 
 def get_topic_vectors(lda_model, corpus):
-    """Convert articles into topic distribution vectors."""
+    """
+    Convert articles into topic distribution vectors.
+    Uses a minimum_probability of 0.05 to filter out very low-probability topics.
+    """
     topic_vectors = []
+    num_topics = lda_model.num_topics
     for doc in corpus:
-        topics = lda_model.get_document_topics(doc, minimum_probability=0)
-        topic_vector = np.array([prob for _, prob in topics])
+        # Retrieve topic distribution as a list of (topic_id, probability) tuples,
+        # filtering out topics with probability below 0.05.
+        topics = lda_model.get_document_topics(doc, minimum_probability=0.05)
+        # Initialize a vector of zeros for all topics.
+        topic_vector = np.zeros(num_topics)
+        # Populate topic_vector with available probabilities.
+        for topic_id, prob in topics:
+            topic_vector[topic_id] = prob
         topic_vectors.append(topic_vector)
     return np.array(topic_vectors)
 
@@ -159,7 +175,7 @@ def extract_entities(text):
     doc = nlp(text)
     entities = set()
     for ent in doc.ents:
-        if ent.label_ in {"GPE", "DATE", "EVENT", "LOC", "ORG", "PERSON"}:
+        if ent.label_ in {"GPE", "DATE", "EVENT", "LOC", "ORG", "PERSON", "NORP", "PRODUCT", "MONEY"}:
             entities.add(ent.text.lower())
     return entities
 
@@ -170,6 +186,7 @@ def compute_topic_similarity_matrix_spacy(texts):
     entities_list = []
     for text in texts:
         ents = extract_entities(text)
+        print(ents)
         entities_list.append(ents)
     for i in range(num_articles):
         for j in range(num_articles):

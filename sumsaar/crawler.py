@@ -82,7 +82,7 @@ def scrape_with_playwright(url):
         browser = p.chromium.launch()
         page = browser.new_page()
         page.goto(url)
-        time.sleep(2) # Allow the javascript to render
+        #time.sleep(2) # Allow the javascript to render
         content = page.content()
         browser.close()
 
