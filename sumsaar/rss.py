@@ -162,6 +162,7 @@ class LLM(object):
         self.client = Client(
             host=OLLAMA_URL,
             )
+        self.system_prompt_template = ''
         self.system_prompt = ''
 
 
@@ -182,26 +183,27 @@ class SummaryLLM(LLM):
         #                  "If the article does not contain hard news but is more of a lifestyle, entertainment, " 
         #                  "or opinion piece, respond by noting that the content does not qualify as news.")
 
-        self.system_prompt = ("Summarize the article provided by highlighting the key events and factual "
+        self.system_prompt_template = ("Summarize the article provided by highlighting the key events and factual "
                         "details related to current affairs, politics, economics, or global developments. "
                         "Keep the summary concise and free from predefined structures or bullet points. "
                         "If the article does not contain hard news but is more of a lifestyle, entertainment, "
                         "or opinion piece, simply state: 'This is not a news article' without further explanation.")
+        self.system_prompt = self.system_prompt_template
 
 class CopyWriterLLM(LLM):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.system_prompt = ("Rewrite the following news article while retaining all the relevant details "
+        self.system_prompt_template = ("Rewrite the following news article while retaining all the relevant details "
                         "and adding further details from the article provided by the user."
-                        "Provide a clear title to the article as well."
-                        "Keep the tone of the article objective and neutral. Do not modify anything that is quoted and reduce redundancy."
+                        "Keep the tone of the article objective and neutral."
+                        "Minimize redundancy of information and limit the article to a maximum of 1000 words."
                         "The reference article is : {reference_article}")
-    
+
 
 class DedupLLM(LLM):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.system_prompt = ("You are an AI language model tasked with assessing the similarity between the reference article provided below and the one user provides."
+        self.system_prompt_template = ("You are an AI language model tasked with assessing the similarity between the reference article provided below and the one user provides."
                               " Based on their topic, key events, and overall subject matter, "
                               "classify their relationship using only one of the following fixed categories:"
                               "- **RELATED** if the articles discuss the same event, or subject"
@@ -285,7 +287,7 @@ def dedup():
     llm = DedupLLM()
     # Iterate over articles pairwise without repetition
     for ref_article, compare_article in itertools.combinations(summaries, 2):
-        llm.system_prompt = llm.system_prompt.format(reference_article = ref_article['content'])
+        llm.system_prompt = llm.system_prompt_template.format(reference_article = ref_article['content'])
         response = llm.client.chat(model='deepseek-r1:14b', messages=[
                             {'role': 'system', 'content': llm.system_prompt},
                             {'role': 'user', 'content': compare_article['content']}
@@ -317,37 +319,36 @@ def rewrite():
         cache = json.load(fd)
 
     # Sort articles by ID and store (id, title, content)
-    articles = sorted(cache, key=lambda x: x['id'])
-
-    index_to_metadata = {i: (article['id'], article['title'], article['content']) for i, article in enumerate(articles)}
+    articles = { str(article['id']): article for article in cache}
 
     for article_id in similarity_data:
         if article_id in covered_ids:
             #Skip article as it is already covered
             print(f'Skip {article_id}')
             continue
+        print(f'Article ID: {article_id}')
         info = similarity_data[article_id]
+        
         reference_content = {'title': '',
-                             'content': articles[info["id"]]['content']}
+                             'content': articles[str(article_id)]}
         
         if len(info['scores']['LSA']['strong'])>0:
             for related_id in info['scores']['LSA']['strong']:
-                print('Reference:')
+                #print('Reference:')
                 print(reference_content)
 
-                print(f'Related: {related_id["id"]}')
-                id, title, content = index_to_metadata[related_id['id']]
-                related_article = content
-                print(related_article)
-                llm.system_prompt = llm.system_prompt.format(reference_article = reference_content['content'])
+                #print(f'Related: {related_id["id"]}')
+                related_article = articles[str(related_id['id'])]
+                #print(related_article)
+                llm.system_prompt = llm.system_prompt_template.format(reference_article = reference_content['content'])
                 response = llm.client.chat(model='deepseek-r1:14b', messages=[
                                     {'role': 'system', 'content': llm.system_prompt},
-                                    {'role': 'user', 'content': related_article}
+                                    {'role': 'user', 'content': related_article['content']}
                                 ],
                                 stream=False,
                                 keep_alive='1m',
                                 options={
-                                    'num_ctx': 8196,
+                                    'num_ctx': 8196*2,
                                     'repeat_last_n': 0,
                                     'temperature': 0.5,
                                 },
@@ -355,12 +356,15 @@ def rewrite():
                 response_content = LLMArticle.model_validate_json(response.message.content)
                 reference_content = {'title': response_content.title,
                                      'content': response_content.content}
+                print('Rewritten article:')
                 if related_id['id'] not in covered_ids:
                     covered_ids.append(related_id['id'])
         rewritten_articles.append(reference_content)
         if article_id not in covered_ids:
             covered_ids.append(article_id)
-
+    with open(os.path.join(feeds_dir, 'rewritten_articles.json'), "w") as json_file:
+        json.dump(rewritten_articles, json_file, indent=4, default=str)
+    
 if __name__=="__main__":
     #fetch(max_entries=0)
     #group_articles()

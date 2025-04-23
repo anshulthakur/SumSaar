@@ -177,7 +177,7 @@ def categorize_similarity(similarity_matrix, strong_threshold, medium_threshold)
     num_articles = len(article_contents)
 
     for i in range(num_articles):
-        id1, title1 = index_to_metadata[i]
+        id1, title1, content1 = index_to_metadata[i]
 
         # Initialize structure for each article
         categorized_data[id1] = {
@@ -190,7 +190,7 @@ def categorize_similarity(similarity_matrix, strong_threshold, medium_threshold)
             if i == j:  # Skip self-match
                 continue
 
-            id2, title2 = index_to_metadata[j]
+            id2, title2, content2 = index_to_metadata[j]
             similarity_score = round(similarity_matrix[i, j], 4)
 
             # Assign similarity scores into categories
