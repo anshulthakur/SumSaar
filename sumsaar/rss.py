@@ -31,6 +31,7 @@ from dateutil import parser
 import traceback
 
 from pipeline import group_articles
+from collections import defaultdict
 
 #import requests
 #from bs4 import BeautifulSoup
@@ -83,9 +84,27 @@ class LLMDedup(BaseModel):
 
 def get_feed_list():
     feed_list = []
+    blacklisted_feeds = []
+    try:
+        with open(os.path.join(feeds_dir, 'feeds_blacklist.csv'), 'r') as fd:
+            reader = csv.DictReader(fd)
+            blacklisted_feeds = [row['substring'].strip() for row in reader]
+    except:
+        traceback.print_exc()
+        pass
     with open(os.path.join(feeds_dir, 'feeds.csv'), 'r') as fd:
         reader = csv.DictReader(fd)
         feed_list = [FeedSource.model_validate(row) for row in reader]
+
+    #Prune the feedlist from blacklisted URLs
+    pop_list = []
+    for ii in range(0, len(feed_list)):
+        feed = feed_list[ii]
+        if any(map(feed.link.__contains__, blacklisted_feeds)):
+            pop_list.append(ii)
+    for ii in reversed(pop_list): #Reversed to preserve index numbers of remaining entries
+        feed_list.pop(ii)
+
     return feed_list
 
 def parse_date(pub_date_str):
@@ -193,8 +212,7 @@ class SummaryLLM(LLM):
 class CopyWriterLLM(LLM):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.system_prompt_template = ("Rewrite the following news article while retaining all the relevant details "
-                        "and adding further details from the article provided by the user."
+        self.system_prompt_template = ("Combine the reference NEWS article with the details provided by the user. "
                         "Keep the tone of the article objective and neutral."
                         "Minimize redundancy of information and limit the article to a maximum of 1000 words."
                         "The reference article is : {reference_article}")
@@ -309,10 +327,10 @@ def dedup():
 def rewrite():
     rewritten_articles = []
     similarity_data = {}
-    covered_ids = []
+
     llm = CopyWriterLLM()
 
-    with open(os.path.join(feeds_dir, 'similarity_results_combined.json'), 'r') as fd:
+    with open(os.path.join(feeds_dir, 'compacted_similarity_ids.json'), 'r') as fd:
         similarity_data = json.load(fd)
 
     with open(os.path.join(feeds_dir, 'cache.json'), 'r') as fd:
@@ -321,24 +339,20 @@ def rewrite():
     # Sort articles by ID and store (id, title, content)
     articles = { str(article['id']): article for article in cache}
 
-    for article_id in similarity_data:
-        if article_id in covered_ids:
-            #Skip article as it is already covered
-            print(f'Skip {article_id}')
-            continue
-        print(f'Article ID: {article_id}')
-        info = similarity_data[article_id]
+    for article_group in similarity_data:
+        reference_content = {'title': articles[str(article_group[0])]['title'],
+                             'content': articles[str(article_group[0])]['content'],
+                             'urls': [articles[str(article_group[0])]['link']]}
         
-        reference_content = {'title': '',
-                             'content': articles[str(article_id)]}
-        
-        if len(info['scores']['LSA']['strong'])>0:
-            for related_id in info['scores']['LSA']['strong']:
+        print(f'Article ID: {article_group[0]}')
+
+        if len(article_group)>0:
+            for related_id in article_group[1:]:
                 #print('Reference:')
                 print(reference_content)
 
                 #print(f'Related: {related_id["id"]}')
-                related_article = articles[str(related_id['id'])]
+                related_article = articles[str(related_id)]
                 #print(related_article)
                 llm.system_prompt = llm.system_prompt_template.format(reference_article = reference_content['content'])
                 response = llm.client.chat(model='deepseek-r1:14b', messages=[
@@ -354,21 +368,109 @@ def rewrite():
                                 },
                                 format=LLMArticle.model_json_schema())
                 response_content = LLMArticle.model_validate_json(response.message.content)
-                reference_content = {'title': response_content.title,
-                                     'content': response_content.content}
+                reference_content['title'] = response_content.title
+                reference_content['content'] = response_content.content
+                reference_content['urls'].append(related_article['link'])
+
                 print('Rewritten article:')
-                if related_id['id'] not in covered_ids:
-                    covered_ids.append(related_id['id'])
+            print(reference_content)
         rewritten_articles.append(reference_content)
-        if article_id not in covered_ids:
-            covered_ids.append(article_id)
     with open(os.path.join(feeds_dir, 'rewritten_articles.json'), "w") as json_file:
         json.dump(rewritten_articles, json_file, indent=4, default=str)
-    
+
+
+class UnionFind:
+    def __init__(self):
+        self.parent = {}
+
+    def find(self, node):
+        if self.parent[node] != node:
+            self.parent[node] = self.find(self.parent[node])  # Path compression
+        return self.parent[node]
+
+    def union(self, node1, node2):
+        root1 = self.find(node1)
+        root2 = self.find(node2)
+        if root1 != root2:
+            self.parent[root2] = root1  # Merge components
+
+    def add(self, node):
+        if node not in self.parent:
+            self.parent[node] = node
+
+    def get_components(self):
+        components = {}
+        for node in self.parent:
+            root = self.find(node)
+            if root not in components:
+                components[root] = set()
+            components[root].add(node)
+        return [sorted(component) for component in components.values()]  # Sorting each subgraph
+
+def build_forest(edges, all_ids):
+    uf = UnionFind()
+
+    # Step 1: Add all nodes
+    for node in all_ids:
+        uf.add(node)
+
+    # Step 2: Merge connected components
+    for src, dest in edges:
+        uf.union(src, dest)
+
+    # Step 3: Extract and sort connected components
+    return uf.get_components()
+
+def compact():
+    with open(os.path.join(feeds_dir, 'similarity_results_combined.json'), 'r') as fd:
+        similarity_data = json.load(fd)
+
+    edges = []
+    ids = []
+    #edges = [(1, 2), (1, 3), (2, 4), (5, 6)]
+    for article_id in similarity_data:
+        if int(article_id) not in ids:
+            ids.append(int(article_id))
+        info = similarity_data[article_id]
+        for related_id in info['scores']['LSA']['strong']:
+            if int(article_id) < int(related_id['id']) and (int(article_id), int(related_id['id'])) not in edges:
+                edges.append((int(article_id), int(related_id['id'])))
+            elif int(article_id) > int(related_id['id']) and (int(related_id['id']), int(article_id)) not in edges:
+                edges.append((int(related_id['id']), int(article_id)))
+    forest = build_forest(edges, set(ids))
+
+    with open(os.path.join(feeds_dir, 'compacted_similarity_ids.json'), 'w') as fd:
+        json.dump(forest, fd, indent=2, default=str)
+
+def display():
+    import streamlit as st
+    articles = []
+    try:
+        with open(os.path.join(feeds_dir, 'rewritten_articles.json'), "r") as json_file:
+            articles = json.load(json_file)
+    except:
+        pass
+
+    # Streamlit UI
+    st.title("Article Viewer")
+
+    # Convert articles into a dictionary
+    article_titles = [article["title"] for article in articles]
+    selected_title = st.selectbox("Select an article:", article_titles)
+
+    # Find selected article
+    selected_article = next((article for article in articles if article["title"] == selected_title), None)
+
+    # Display article content
+    if selected_article:
+        st.markdown(selected_article["content"], unsafe_allow_html=True)
+
 if __name__=="__main__":
-    #fetch(max_entries=0)
-    #group_articles()
+    fetch(max_entries=0)
+    group_articles()
+    compact()
     rewrite()
+    display()
     #dedup()
     #digest()
     

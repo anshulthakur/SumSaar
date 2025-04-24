@@ -113,25 +113,66 @@ Using a mix of these techniques, you can build an effective similarity detection
 
 ## Another day, with something already implemented. But, using LDA gave many false groupings, so I went back and asked:
 
-I want to compare the texts of two articles and see if they're covering the same topic or not. If they're covering the same topic, it is quite possible that both of them essentially contain the same information worded differently. However, it is also possible that each contains facts which are not present in the other article. In terms of sets, I want to know if one article is a subset of the other, a superset of the other, or is there a large intersection among the two with some non-empty difference sets as well. What I don't want to do is to club two articles together when they are not covering the same news. For example, one article may be covering the news of a building collapse in Delhi an the casualties, while the other talks of another collapse in UP. But, the two events are separate. So, I want to be able to distinguish between the two reliably
-Your goal is clear—you want a robust way to determine topic similarity, while also analyzing information coverage (subset, superset, or partial intersection) between articles. You also need a system that avoids false matches, ensuring that similar wording does not mistakenly categorize two distinct events as the same.
+I want to compare the texts of two articles and see if they're covering the same topic or not. If they're covering the same topic, 
+it is quite possible that both of them essentially contain the same information worded differently. 
+However, it is also possible that each contains facts which are not present in the other article. 
+In terms of sets, I want to know if one article is a subset of the other, a superset of the other, or is there a large 
+intersection among the two with some non-empty difference sets as well. What I don't want to do is to club two articles together when they are not covering the same news.
+For example, one article may be covering the news of a building collapse in Delhi an the casualties, 
+while the other talks of another collapse in UP. But, the two events are separate. 
+So, I want to be able to distinguish between the two reliably
+Your goal is clear—you want a robust way to determine topic similarity, while also analyzing information coverage (subset, superset, 
+or partial intersection) between articles. 
+You also need a system that avoids false matches, ensuring that similar wording does not mistakenly categorize two distinct events as the same.
 
 Approach
-To achieve this, we’ll use a two-step verification process: 1️⃣ Topic Classification: First, determine whether two articles are about the same event using semantic similarity & entity recognition. 2️⃣ Content Coverage Analysis: If they cover the same event, check if one article is a subset, superset, or has partial overlap using set-based comparisons.
+To achieve this, we’ll use a two-step verification process: 
+1️⃣ Topic Classification: First, determine whether two articles are about the same event using semantic similarity & entity recognition. 
+2️⃣ Content Coverage Analysis: If they cover the same event, check if one article is a subset, superset, 
+or has partial overlap using set-based comparisons.
 
 Step 1: Topic Classification (Avoid False Matches)
-Before comparing content coverage, we first ensure both articles actually discuss the same event using: ✅ Named Entity Recognition (NER) – Extract people, locations, dates, key terms and compare overlaps. ✅ Latent Semantic Analysis (LSA) or SBERT – Compare topic embeddings to verify event similarity. ✅ Event Extraction (OpenIE or spaCy) – Identify action-oriented phrases (e.g., "building collapsed", "earthquake struck") to ensure same event focus.
+Before comparing content coverage, we first ensure both articles actually discuss the same event using: 
+✅ Named Entity Recognition (NER) – Extract people, locations, dates, key terms and compare overlaps. 
+✅ Latent Semantic Analysis (LSA) or SBERT – Compare topic embeddings to verify event similarity. 
+✅ Event Extraction (OpenIE or spaCy) – Identify action-oriented phrases 
+(e.g., "building collapsed", "earthquake struck") to ensure same event focus.
 
 If NER and event similarity confirm a match, proceed to Step 2.
 
 Step 2: Content Coverage Analysis (Subset, Superset, or Partial Overlap)
-Once we’re sure the articles cover the same event, we measure information coverage using: ✅ Jaccard Set Comparison – Compare word/token sets and classify:
+Once we’re sure the articles cover the same event, we measure information coverage using: 
+✅ Jaccard Set Comparison – Compare word/token sets and classify:
 
 Subset (A ⊆ B) → Article A contains a strict subset of facts from B.
 
 Superset (A ⊇ B) → Article A contains additional information beyond B.
 
-Intersection (A ∩ B) → Both contain overlapping facts, but neither is strictly contained in the other. ✅ TF-IDF + Concept Matching – Identify unique terms in each article, helping flag exclusive details missing from one but present in the other.
+Intersection (A ∩ B) → Both contain overlapping facts, but neither is strictly contained in the other. 
+✅ TF-IDF + Concept Matching – Identify unique terms in each article, helping flag exclusive details missing from one but present in the other.
 
 How This Helps
-🔹 Avoids false grouping (e.g., two distinct building collapses won’t be confused). 🔹 Captures nuance—detects if an article misses key details or if one is just a reworded version of another. 🔹 Detects factual differences—ensuring that partial matches do not imply complete topic overlap.
+🔹 Avoids false grouping (e.g., two distinct building collapses won’t be confused). 
+🔹 Captures nuance—detects if an article misses key details or if one is just a reworded version of another. 
+🔹 Detects factual differences—ensuring that partial matches do not imply complete topic overlap.
+
+OK.
+After some wrangling with the LLM and some code, here's what I've observed.
+1. NER extracts labels, but not everything. For example, in an article about gold prices soaring, it extracted everything but gold (despite having the label OBJECT/PRODUCT for it.)
+2. The LLM throws a lot of options my way when I talk to it, not all are good. So, I go with the ones which I feel are nearest to what
+I've done till that point, and see if it works.
+3. The options can make it feel daunting and overwhelming. It is so easy to get lost in the weeds. So, I'm reorienting myself towards completing the minimal prototype pipeline and then fixing parts of it incrementally.
+
+For the 3rd point above, here's what I've done so far:
+✅ Download RSS feeds and save to a JSON file. Define the structure in pydantic to allow some constraint on what I'm doing. 
+This leads to a lot of Pydantic models, but it's easier to refer to the model than put a print on the JSON object to see what it brings.
+✅ Download is using newspaper4k which does not directly handle javascript, so integrated with playwright headless browsing. The code is flaky, 
+but exceptions are being handled (and article downloads skipped)
+✅ Another set of methods to parse the saved JSON and organize the articles in terms of similarity. So far, Latent Semantic Analysis seems 
+to work best, and has decent speed - especially when compared to the LLM models. Latent Dirichlet Allocation (LDA) doesn't work nicely.
+✅ Finally, another script currently utilizes the output of LSA similarity to compact and rewrite the set of related articles 
+into a single one using LLMs. Here, the speed is slow, and when there are many similar articles on the same topic, the length may become a constraint.
+Further, the notion of 'updates' in NEWS (there was a terrorist attack in Pahalgam yesterday, 25 articles on it, each one evolving) is missing. 
+The LLM may put all the figures inside the article and make it confusing.
+
+But, let's put up a dirty web-page to browse and read these stories (using some python package instead of making it big with Flask/Django).
