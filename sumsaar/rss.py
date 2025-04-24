@@ -33,6 +33,19 @@ import traceback
 from pipeline import group_articles
 from collections import defaultdict
 
+rewritten_articles = []
+
+progress = {'stage': None,
+            'last_processed_index': [0,1]}
+
+import signal, os
+
+def signal_handler(signum, frame):
+    global rewritten_articles
+    global progress
+    save_progress()
+
+
 #import requests
 #from bs4 import BeautifulSoup
 #import spacy
@@ -232,6 +245,12 @@ class DedupLLM(LLM):
                         )
 
 def fetch(max_entries=0):
+    if progress['stage'] == None:
+        progress['stage'] = 'fetch'
+    elif progress['stage'] != 'fetch':
+        #Already fetched for the day. Skip
+        print('Skip fetching')
+        return
     feed_list = get_feed_list()
     ii = 0
     articles = []
@@ -260,6 +279,8 @@ def fetch(max_entries=0):
         #print(type(ArticleListModel.dump_json(articles, indent=2)))
         fd.write(ArticleListModel.dump_json(articles, indent=2))
         #fd.write(json.dumps(articles.json(), indent=2))
+
+    
 
 def digest():
     llm = SummaryLLM(host=OLLAMA_URL)
@@ -325,7 +346,7 @@ def dedup():
             print(f"{compare_article['title']} is UNRELATED to {ref_article['title']}")
 
 def rewrite():
-    rewritten_articles = []
+    global rewritten_articles
     similarity_data = {}
 
     llm = CopyWriterLLM()
@@ -339,15 +360,27 @@ def rewrite():
     # Sort articles by ID and store (id, title, content)
     articles = { str(article['id']): article for article in cache}
 
-    for article_group in similarity_data:
-        reference_content = {'title': articles[str(article_group[0])]['title'],
-                             'content': articles[str(article_group[0])]['content'],
-                             'urls': [articles[str(article_group[0])]['link']]}
-        
-        print(f'Article ID: {article_group[0]}')
+    progress['stage'] = 'rewrite'
 
-        if len(article_group)>0:
-            for related_id in article_group[1:]:
+    init_outer_index = progress['last_processed_index'][0]
+    init_inner_index = progress['last_processed_index'][1]
+
+    for ii in range(init_outer_index, len(similarity_data)):
+        article_group = similarity_data[ii]
+        if init_outer_index == 0 and init_inner_index == 1:
+            reference_content = {'title': articles[str(article_group[init_outer_index])]['title'],
+                                'content': articles[str(article_group[init_outer_index])]['content'],
+                                'urls': [articles[str(article_group[init_outer_index])]['link']]}
+            rewritten_articles.append(reference_content)
+        else:
+            reference_content = {'title': rewritten_articles[-1]['title'],
+                                'content': rewritten_articles[-1]['content'],
+                                'urls': rewritten_articles[-1]['urls']}
+        print(f'Article ID: {article_group[0]}')
+        
+        if len(article_group)>1:
+            for jj in range(init_inner_index, len(article_group)):
+                related_id = article_group[jj]
                 #print('Reference:')
                 print(reference_content)
 
@@ -372,9 +405,11 @@ def rewrite():
                 reference_content['content'] = response_content.content
                 reference_content['urls'].append(related_article['link'])
 
+                rewritten_articles[-1] = reference_content
+                progress['last_processed_index'] = [ii,jj]
+
                 print('Rewritten article:')
             print(reference_content)
-        rewritten_articles.append(reference_content)
     with open(os.path.join(feeds_dir, 'rewritten_articles.json'), "w") as json_file:
         json.dump(rewritten_articles, json_file, indent=4, default=str)
 
@@ -442,35 +477,43 @@ def compact():
     with open(os.path.join(feeds_dir, 'compacted_similarity_ids.json'), 'w') as fd:
         json.dump(forest, fd, indent=2, default=str)
 
-def display():
-    import streamlit as st
-    articles = []
+def load_progress():
+    global progress
+    global rewritten_articles
     try:
-        with open(os.path.join(feeds_dir, 'rewritten_articles.json'), "r") as json_file:
-            articles = json.load(json_file)
+        with open(os.path.join(feeds_dir, 'progress.json'), 'r') as fd:
+            progress = json.load(fd)
+        with open(os.path.join(feeds_dir, 'rewritten_articles.json'), 'r') as fd:
+            rewritten_articles = json.load(fd)
     except:
+        traceback.print_exc()
         pass
 
-    # Streamlit UI
-    st.title("Article Viewer")
+    print(progress)
 
-    # Convert articles into a dictionary
-    article_titles = [article["title"] for article in articles]
-    selected_title = st.selectbox("Select an article:", article_titles)
-
-    # Find selected article
-    selected_article = next((article for article in articles if article["title"] == selected_title), None)
-
-    # Display article content
-    if selected_article:
-        st.markdown(selected_article["content"], unsafe_allow_html=True)
+def save_progress():
+    global progress
+    global rewritten_articles
+    with open(os.path.join(feeds_dir, 'rewritten_articles.json'), "w") as json_file:
+        json.dump(rewritten_articles, json_file, indent=4, default=str)
+    with open(os.path.join(feeds_dir, 'progress.json'), "w") as json_file:
+        json.dump(progress, json_file, indent=4, default=str)
 
 if __name__=="__main__":
+    signal.signal(signal.SIGINT, signal_handler)
+    load_progress()
+
     fetch(max_entries=0)
-    group_articles()
-    compact()
+    if progress['stage'] == 'fetch':
+        group_articles()
+        progress['stage'] = 'grouped'
+    print('Grouping done')
+    if progress['stage'] != 'compacted':
+        #Already grouped, skip
+        compact()
+        progress['stage'] = 'compacted'
+    print('Compacting done')
     rewrite()
-    display()
     #dedup()
     #digest()
     
