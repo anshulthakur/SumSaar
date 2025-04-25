@@ -6,7 +6,6 @@ from settings import PROJECT_DIRS
 feeds_dir = PROJECT_DIRS.get('runtime')
 
 def display():
-    
     articles = []
     try:
         with open(os.path.join(feeds_dir, 'rewritten_articles.json'), "r") as json_file:
@@ -24,10 +23,17 @@ def display():
     # Find selected article
     selected_article = next((article for article in articles if article["title"] == selected_title), None)
 
-    # Display article content
+    # Display article content and URLs
     if selected_article:
-        st.markdown(selected_article["content"], unsafe_allow_html=True)
+        #st.markdown(selected_article["content"], unsafe_allow_html=True)
+        st.text(selected_article["content"])
 
+        # Display source URLs
+        urls = selected_article.get("urls", [])
+        if urls:
+            st.subheader("Source URLs:")
+            for url in urls:
+                st.markdown(f"- [🔗 {url}]({url})", unsafe_allow_html=True)
 
-if __name__=="__main__":
+if __name__ == "__main__":
     display()

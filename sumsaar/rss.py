@@ -225,10 +225,15 @@ class SummaryLLM(LLM):
 class CopyWriterLLM(LLM):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.system_prompt_template = ("Combine the reference NEWS article with the details provided by the user. "
-                        "Keep the tone of the article objective and neutral."
-                        "Minimize redundancy of information and limit the article to a maximum of 1000 words."
-                        "The reference article is : {reference_article}")
+        self.system_prompt = ("You are an AI editor."
+                              " Your task is to merge and rewrite the provided articles into a single cohesive, objective, and well-structured piece."
+                            "Always generate objective and neutral articles without bias and only based on the information contained in the articles."
+                        )
+        self.template=("Combine the following articles into a single, well-structured news piece. "
+                       "Ensure clarity, coherence, and eliminate redundant information. "
+                       "Maintain an objective tone.\n\n"
+                       "Source Articles:\n{prompt}\n\n"
+                       )
 
 
 class DedupLLM(LLM):
@@ -387,20 +392,21 @@ def rewrite():
                 #print(f'Related: {related_id["id"]}')
                 related_article = articles[str(related_id)]
                 #print(related_article)
-                llm.system_prompt = llm.system_prompt_template.format(reference_article = reference_content['content'])
-                response = llm.client.chat(model='deepseek-r1:14b', messages=[
-                                    {'role': 'system', 'content': llm.system_prompt},
-                                    {'role': 'user', 'content': related_article['content']}
-                                ],
-                                stream=False,
-                                keep_alive='1m',
-                                options={
-                                    'num_ctx': 8196*2,
-                                    'repeat_last_n': 0,
-                                    'temperature': 0.5,
-                                },
-                                format=LLMArticle.model_json_schema())
-                response_content = LLMArticle.model_validate_json(response.message.content)
+                prompt = f"Article 1: {reference_content['content']}\nArticle 2: {related_article['content']}"
+                #llm.system_prompt = llm.system_prompt_template.format(reference_article = reference_content['content'])
+                response = llm.client.generate( model='deepseek-r1:14b', 
+                                                system=llm.system_prompt,
+                                                prompt=llm.template.format(prompt=prompt),
+                                                #template=llm.template,
+                                                stream=False,
+                                                keep_alive='1m',
+                                                options={
+                                                   'num_ctx': 8196*2,
+                                                    'repeat_last_n': 0,
+                                                    'temperature': 0.5,
+                                                },
+                                                format=LLMArticle.model_json_schema())
+                response_content = LLMArticle.model_validate_json(response.response)
                 reference_content['title'] = response_content.title
                 reference_content['content'] = response_content.content
                 reference_content['urls'].append(related_article['link'])
