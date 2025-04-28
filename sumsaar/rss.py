@@ -43,7 +43,9 @@ import signal, os
 def signal_handler(signum, frame):
     global rewritten_articles
     global progress
+    print('Stopping')
     save_progress()
+    exit(0)
 
 
 #import requests
@@ -231,6 +233,7 @@ class CopyWriterLLM(LLM):
                         )
         self.template=("Combine the following articles into a single, well-structured news piece. "
                        "Ensure clarity, coherence, and eliminate redundant information. "
+                       "It is important that you don't lose out on details, so be thorough."
                        "Maintain an objective tone.\n\n"
                        "Source Articles:\n{prompt}\n\n"
                        )
@@ -351,6 +354,21 @@ def dedup():
             print(f"{compare_article['title']} is UNRELATED to {ref_article['title']}")
 
 def rewrite():
+    def generate(prompt):
+        response = llm.client.generate( model='deepseek-r1:14b', 
+                                                system=llm.system_prompt,
+                                                prompt=llm.template.format(prompt=prompt),
+                                                #template=llm.template,
+                                                stream=False,
+                                                keep_alive='1m',
+                                                options={
+                                                   'num_ctx': 8196*2,
+                                                    'repeat_last_n': 0,
+                                                    'temperature': 0.5,
+                                                },
+                                                format=LLMArticle.model_json_schema())
+        return LLMArticle.model_validate_json(response.response)
+
     global rewritten_articles
     similarity_data = {}
 
@@ -394,19 +412,10 @@ def rewrite():
                 #print(related_article)
                 prompt = f"Article 1: {reference_content['content']}\nArticle 2: {related_article['content']}"
                 #llm.system_prompt = llm.system_prompt_template.format(reference_article = reference_content['content'])
-                response = llm.client.generate( model='deepseek-r1:14b', 
-                                                system=llm.system_prompt,
-                                                prompt=llm.template.format(prompt=prompt),
-                                                #template=llm.template,
-                                                stream=False,
-                                                keep_alive='1m',
-                                                options={
-                                                   'num_ctx': 8196*2,
-                                                    'repeat_last_n': 0,
-                                                    'temperature': 0.5,
-                                                },
-                                                format=LLMArticle.model_json_schema())
-                response_content = LLMArticle.model_validate_json(response.response)
+                response_content = generate(prompt)
+                while response_content.content == '...':
+                    #Retry
+                    response_content = generate(prompt)
                 reference_content['title'] = response_content.title
                 reference_content['content'] = response_content.content
                 reference_content['urls'].append(related_article['link'])
@@ -520,6 +529,7 @@ if __name__=="__main__":
         progress['stage'] = 'compacted'
     print('Compacting done')
     rewrite()
+    save_progress()
     #dedup()
     #digest()
     
