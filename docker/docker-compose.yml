@@ -56,10 +56,10 @@ x-airflow-common:
     AIRFLOW__CORE__EXECUTOR: CeleryExecutor
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
     AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@postgres/airflow
-    AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+    AIRFLOW__CELERY__BROKER_URL: valkey://:@valkey:6379/0
     AIRFLOW__CORE__FERNET_KEY: ''
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
-    AIRFLOW__CORE__LOAD_EXAMPLES: 'true'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
     AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
     # yamllint disable rule:line-length
     # Use simple http server on scheduler for health checks
@@ -81,12 +81,30 @@ x-airflow-common:
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     &airflow-common-depends-on
-    redis:
+    valkey:
       condition: service_healthy
     postgres:
       condition: service_healthy
 
 services:
+  streamlit:
+    build:
+      context: .
+      dockerfile: ./Streamlit_Dockerfile
+    restart: always
+    command: "streamlit run serve.py --server.port=8501 --server.address=0.0.0.0"
+    container_name: streamlit_server
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8501/_stcore/health"]
+      interval: 10s
+      timeout: 30s
+      retries: 5
+      start_period: 60s
+    volumes:
+    - ../sumsaar:/app
+    ports:
+    - "8501:8501"
+
   postgres:
     image: postgres:13
     environment:
@@ -102,14 +120,12 @@ services:
       start_period: 5s
     restart: always
 
-  redis:
-    # Redis is limited to 7.2-bookworm due to licencing change
-    # https://redis.io/blog/redis-adopts-dual-source-available-licensing/
-    image: redis:7.2-bookworm
-    expose:
-      - 6379
+  valkey:
+    image: valkey/valkey:bookworm
+    ports:
+      - '6378:6379'
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "valkey-cli", "ping"]
       interval: 10s
       timeout: 30s
       retries: 50
@@ -120,7 +136,7 @@ services:
     <<: *airflow-common
     command: webserver
     ports:
-      - "8080:8080"
+      - "8081:8080"
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
       interval: 30s
@@ -285,25 +301,25 @@ services:
       airflow-init:
         condition: service_completed_successfully
 
-  crawl4ai:
-    image: unclecode/crawl4ai:basic-amd64
-    ports:
-      - "11235:11235"
-    environment:
-      - CRAWL4AI_API_TOKEN=${CRAWL4AI_API_TOKEN:-}  # Optional API security
-      - MAX_CONCURRENT_TASKS=5
-      # LLM Provider Keys
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-    volumes:
-      - /dev/shm:/dev/shm
-    deploy:
-      resources:
-        limits:
-          memory: 4G
-        reservations:
-          memory: 1G
-    restart: always
+  # crawl4ai:
+  #   image: unclecode/crawl4ai:basic-amd64
+  #   ports:
+  #     - "11235:11235"
+  #   environment:
+  #     - CRAWL4AI_API_TOKEN=${CRAWL4AI_API_TOKEN:-}  # Optional API security
+  #     - MAX_CONCURRENT_TASKS=5
+  #     # LLM Provider Keys
+  #     - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+  #     - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+  #   volumes:
+  #     - /dev/shm:/dev/shm
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 4G
+  #       reservations:
+  #         memory: 1G
+  #   restart: always
 
 volumes:
   postgres-db-volume:

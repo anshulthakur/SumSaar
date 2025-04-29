@@ -35,7 +35,8 @@ from collections import defaultdict
 
 rewritten_articles = []
 
-progress = {'stage': None,
+progress = {'date': datetime.today(),
+            'stage': None,
             'last_processed_index': [0,1]}
 
 import signal, os
@@ -259,6 +260,7 @@ def fetch(max_entries=0):
         #Already fetched for the day. Skip
         print('Skip fetching')
         return
+    
     feed_list = get_feed_list()
     ii = 0
     articles = []
@@ -355,7 +357,7 @@ def dedup():
 
 def rewrite():
     def generate(prompt):
-        response = llm.client.generate( model='deepseek-r1:14b', 
+        response = llm.client.generate( model='llama3.2:latest', 
                                                 system=llm.system_prompt,
                                                 prompt=llm.template.format(prompt=prompt),
                                                 #template=llm.template,
@@ -514,9 +516,30 @@ def save_progress():
     with open(os.path.join(feeds_dir, 'progress.json'), "w") as json_file:
         json.dump(progress, json_file, indent=4, default=str)
 
+def clear_cache():
+    global progress
+    try:
+        if os.path.exists(os.path.join(feeds_dir, 'cache.json')):
+            os.remove(os.path.join(feeds_dir, 'cache.json'))
+        if os.path.exists(os.path.join(feeds_dir, 'similarity_results_combined.json')):
+            os.remove(os.path.join(feeds_dir, 'similarity_results_combined.json'))
+        if os.path.exists(os.path.join(feeds_dir, 'compacted_similarity_ids.json')):
+            os.remove(os.path.join(feeds_dir, 'compacted_similarity_ids.json'))
+        if os.path.exists(os.path.join(feeds_dir, 'progress.json')):
+            os.remove(os.path.join(feeds_dir, 'progress.json'))
+    except:
+        pass
+    finally:
+        progress = {'date': datetime.today(),
+                    'stage': None,
+                    'last_processed_index': [0,1]}
+
 if __name__=="__main__":
     signal.signal(signal.SIGINT, signal_handler)
-    load_progress()
+    load_progress() #2025-04-28 11:53:23.110309
+    if datetime.strptime(progress['date'], "%Y-%m-%d %H:%M:%S.%f").date() != datetime.today().date():
+        print('Clear cache')
+        clear_cache()
 
     fetch(max_entries=0)
     if progress['stage'] == 'fetch':
