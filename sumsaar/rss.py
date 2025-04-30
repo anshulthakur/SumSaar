@@ -7,10 +7,10 @@ from typing import List, Optional, TypeAlias
 from datetime import datetime
 from bs4 import BeautifulSoup
 
-from settings import PROJECT_DIRS, OLLAMA_URL
+from sumsaar.settings import PROJECT_DIRS, OLLAMA_URL
 from ollama import Client
 
-from crawler import scrape_with_playwright
+from sumsaar.crawler import scrape_with_playwright
 
 feeds_dir = PROJECT_DIRS.get('runtime')
 
@@ -30,14 +30,14 @@ from dateutil import parser
 
 import traceback
 
-from pipeline import group_articles
+from sumsaar.pipeline import group_articles
 from collections import defaultdict
 
 rewritten_articles = []
 
 progress = {'date': datetime.today(),
             'stage': None,
-            'last_processed_index': [0,1]}
+            'last_processed_index': [0,0]}
 
 import signal, os
 
@@ -253,7 +253,7 @@ class DedupLLM(LLM):
                               "The reference article is : {reference_article}"
                         )
 
-def fetch(max_entries=0):
+def fetch(max_entries=0, datefilter=datetime.now().date()):
     if progress['stage'] == None:
         progress['stage'] = 'fetch'
     elif progress['stage'] != 'fetch':
@@ -277,7 +277,7 @@ def fetch(max_entries=0):
 
     for feed in feed_list:
         try:
-            for feed_item in parse_feed(feed, max_entries=max_entries, index=crawled_titles):
+            for feed_item in parse_feed(feed, max_entries=max_entries, index=crawled_titles, datefilter= datefilter):
                 ii += 1
                 feed_item.id = ii
                 articles.append(feed_item)
@@ -390,43 +390,63 @@ def rewrite():
     init_outer_index = progress['last_processed_index'][0]
     init_inner_index = progress['last_processed_index'][1]
 
+    article_group = similarity_data[init_outer_index]
+    if init_outer_index == 0 and init_inner_index == 0: #empty state
+        reference_content = {'title': articles[str(article_group[init_outer_index])]['title'],
+                            'content': articles[str(article_group[init_outer_index])]['content'],
+                            'urls': [articles[str(article_group[init_outer_index])]['link']]}
+        rewritten_articles.append(reference_content)
+    else:
+        reference_content = {'title': rewritten_articles[-1]['title'],
+                            'content': rewritten_articles[-1]['content'],
+                            'urls': rewritten_articles[-1]['urls']}
     for ii in range(init_outer_index, len(similarity_data)):
         article_group = similarity_data[ii]
-        if init_outer_index == 0 and init_inner_index == 1:
-            reference_content = {'title': articles[str(article_group[init_outer_index])]['title'],
-                                'content': articles[str(article_group[init_outer_index])]['content'],
-                                'urls': [articles[str(article_group[init_outer_index])]['link']]}
+        
+        print(f'Article ID: {article_group[0]}, Number of articles: {len(article_group)}')
+        if init_inner_index == 0:
+            reference_content = {'title': articles[str(article_group[0])]['title'],
+                                'content': articles[str(article_group[0])]['content'],
+                                'urls': [articles[str(article_group[0])]['link']]}
             rewritten_articles.append(reference_content)
-        else:
-            reference_content = {'title': rewritten_articles[-1]['title'],
-                                'content': rewritten_articles[-1]['content'],
-                                'urls': rewritten_articles[-1]['urls']}
-        print(f'Article ID: {article_group[0]}')
+            print('Updated reference content for new article')
         
         if len(article_group)>1:
-            for jj in range(init_inner_index, len(article_group)):
-                related_id = article_group[jj]
-                #print('Reference:')
-                print(reference_content)
+            if init_inner_index+1 < len(article_group):
+                for jj in range(max(init_inner_index, 1), len(article_group)):
+                    related_id = article_group[jj]
+                    #print('Reference:')
+                    print(reference_content)
 
-                #print(f'Related: {related_id["id"]}')
-                related_article = articles[str(related_id)]
-                #print(related_article)
-                prompt = f"Article 1: {reference_content['content']}\nArticle 2: {related_article['content']}"
-                #llm.system_prompt = llm.system_prompt_template.format(reference_article = reference_content['content'])
-                response_content = generate(prompt)
-                while response_content.content == '...':
-                    #Retry
+                    #print(f'Related: {related_id["id"]}')
+                    related_article = articles[str(related_id)]
+                    #print(related_article)
+                    prompt = f"Article 1: {reference_content['content']}\nArticle 2: {related_article['content']}"
+                    #llm.system_prompt = llm.system_prompt_template.format(reference_article = reference_content['content'])
                     response_content = generate(prompt)
-                reference_content['title'] = response_content.title
-                reference_content['content'] = response_content.content
-                reference_content['urls'].append(related_article['link'])
+                    while response_content.content == '...':
+                        #Retry
+                        response_content = generate(prompt)
+                    reference_content['title'] = response_content.title
+                    reference_content['content'] = response_content.content
+                    reference_content['urls'].append(related_article['link'])
 
-                rewritten_articles[-1] = reference_content
-                progress['last_processed_index'] = [ii,jj]
+                    rewritten_articles[-1] = reference_content
+                    progress['last_processed_index'] = [ii,jj]
 
-                print('Rewritten article:')
+                    print('Rewritten article:')
+            else:
+                #We've already processed the last article in this group and must move on to the next outer index
+                init_inner_index = 0
+                print('Reset inner index')
+                pass
             print(reference_content)
+        else:
+            print('Single entry article')
+            progress['last_processed_index'] = [ii,0]
+
+        init_inner_index = 0 #Reset inner index to that next articles iterate from 0
+
     with open(os.path.join(feeds_dir, 'rewritten_articles.json'), "w") as json_file:
         json.dump(rewritten_articles, json_file, indent=4, default=str)
 
@@ -498,10 +518,13 @@ def load_progress():
     global progress
     global rewritten_articles
     try:
-        with open(os.path.join(feeds_dir, 'progress.json'), 'r') as fd:
-            progress = json.load(fd)
-        with open(os.path.join(feeds_dir, 'rewritten_articles.json'), 'r') as fd:
-            rewritten_articles = json.load(fd)
+        if os.path.exists(os.path.join(feeds_dir, 'progress.json')):
+            with open(os.path.join(feeds_dir, 'progress.json'), 'r') as fd:
+                progress = json.load(fd)
+                progress['date'] = datetime.strptime(progress['date'], "%Y-%m-%d %H:%M:%S.%f")
+        if os.path.exists(os.path.join(feeds_dir, 'rewritten_articles.json')):
+            with open(os.path.join(feeds_dir, 'rewritten_articles.json'), 'r') as fd:
+                rewritten_articles = json.load(fd)
     except:
         traceback.print_exc()
         pass
@@ -518,6 +541,7 @@ def save_progress():
 
 def clear_cache():
     global progress
+    global rewritten_articles
     try:
         if os.path.exists(os.path.join(feeds_dir, 'cache.json')):
             os.remove(os.path.join(feeds_dir, 'cache.json'))
@@ -527,6 +551,9 @@ def clear_cache():
             os.remove(os.path.join(feeds_dir, 'compacted_similarity_ids.json'))
         if os.path.exists(os.path.join(feeds_dir, 'progress.json')):
             os.remove(os.path.join(feeds_dir, 'progress.json'))
+        if os.path.exists(os.path.join(feeds_dir, 'rewritten_articles.json')):
+            os.remove(os.path.join(feeds_dir, 'rewritten_articles.json'))
+        rewritten_articles = []
     except:
         pass
     finally:
@@ -534,14 +561,14 @@ def clear_cache():
                     'stage': None,
                     'last_processed_index': [0,1]}
 
-if __name__=="__main__":
-    signal.signal(signal.SIGINT, signal_handler)
+
+def main(datefilter=datetime.now().date()):
     load_progress() #2025-04-28 11:53:23.110309
-    if datetime.strptime(progress['date'], "%Y-%m-%d %H:%M:%S.%f").date() != datetime.today().date():
+    if progress['date'].date() != datetime.today().date():
         print('Clear cache')
         clear_cache()
 
-    fetch(max_entries=0)
+    fetch(max_entries=0, datefilter=datefilter)
     if progress['stage'] == 'fetch':
         group_articles()
         progress['stage'] = 'grouped'
@@ -551,8 +578,16 @@ if __name__=="__main__":
         compact()
         progress['stage'] = 'compacted'
     print('Compacting done')
-    rewrite()
-    save_progress()
+    try:
+        rewrite()
+    except:
+        traceback.print_exc()
+    finally:
+        save_progress()
     #dedup()
     #digest()
+
+if __name__=="__main__":
+    signal.signal(signal.SIGINT, signal_handler)
+    main()
     

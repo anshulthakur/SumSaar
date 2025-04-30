@@ -12,7 +12,7 @@ from sklearn.decomposition import TruncatedSVD
 from gensim import corpora
 from gensim.models import TfidfModel, LdaModel
 
-from settings import PROJECT_DIRS
+from sumsaar.settings import PROJECT_DIRS
 feeds_dir = PROJECT_DIRS.get('runtime')
 
 # Ensure required nltk resources are downloaded

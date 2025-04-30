@@ -2,7 +2,7 @@ import requests
 import time
 import os
 from typing import Dict, Any
-from settings import CRAWLER_URL
+from sumsaar.settings import CRAWLER_URL
 
 from playwright.sync_api import sync_playwright
 import newspaper 

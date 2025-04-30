@@ -14,7 +14,7 @@ import gensim
 from gensim import corpora
 from gensim.models import LdaModel
 
-from settings import PROJECT_DIRS
+from sumsaar.settings import PROJECT_DIRS
 feeds_dir = PROJECT_DIRS.get('runtime')
 
 nltk.download('punkt')
