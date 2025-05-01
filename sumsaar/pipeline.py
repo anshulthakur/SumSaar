@@ -17,10 +17,34 @@ from gensim.models import LdaModel
 from sumsaar.settings import PROJECT_DIRS
 feeds_dir = PROJECT_DIRS.get('runtime')
 
-nltk.download('punkt')
-nltk.download('stopwords')
-nltk.download('wordnet')
-nltk.download('punkt_tab')
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+try:
+    nltk.data.find('tokenizers/punkt')
+except:
+    logger.warning('Download punkt')
+    nltk.download('punkt')
+
+try:
+    nltk.data.find('tokenizers/stopwords')
+except:
+    logger.warning('Download stopwords')
+    nltk.download('stopwords')
+
+try:
+    nltk.data.find('tokenizers/wordnet')
+except:
+    logger.warning('Download wordnet')
+    nltk.download('wordnet')
+
+try:
+    nltk.data.find('tokenizers/punkt_tab')
+except:
+    logger.warning('Download punkt_tab')
+    nltk.download('punkt_tab')
 
 
 articles = None
@@ -167,7 +191,7 @@ def save_similarity_to_csv(similarity_dict, similarity_matrix, method_name):
     
     filename = os.path.join(feeds_dir, f"similarity_results_{method_name}.csv")
     df.to_csv(filename, index=False)
-    print(f"✅ Saved: {filename}")
+    logger.info(f"✅ Saved: {filename}")
 
 ### **Categorize Similarity Scores Based on Thresholds**
 def categorize_similarity(similarity_matrix, strong_threshold, medium_threshold):
@@ -224,7 +248,7 @@ def save_combined_json(categorized_tfidf, categorized_bow, categorized_jaccard, 
     filename = os.path.join(feeds_dir, "similarity_results_combined.json")
     with open(filename, "w") as json_file:
         json.dump(combined_data, json_file, indent=4, default=str)
-    print(f"✅ Saved: {filename}")
+    logger.info(f"✅ Saved: {filename}")
 
 def group_articles():
     load_article_cache()
@@ -249,17 +273,17 @@ def group_articles():
     lsa_similarity = get_lsa_similarity(tfidf_matrix)
 
     # Find most similar articles for each entry
-    print('Finding most similar articles using TFIDF')
+    logger.info('Finding most similar articles using TFIDF')
     most_similar_tfidf = find_most_similar(tfidf_similarity)
-    print('Finding most similar articles using BOW')
+    logger.info('Finding most similar articles using BOW')
     most_similar_bow = find_most_similar(bow_similarity)
-    print('Finding most similar articles using Jaccard')
+    logger.info('Finding most similar articles using Jaccard')
     most_similar_jaccard = find_most_similar(jaccard_similarity)
-    print('Finding most similar articles using Latent Semantic Analysis')
+    logger.info('Finding most similar articles using Latent Semantic Analysis')
     most_similar_lsa = find_most_similar(lsa_similarity)
 
     # Categorize LDA similarities
-    print('Finding most similar articles using Latent Dirichlet Allocation')
+    logger.info('Finding most similar articles using Latent Dirichlet Allocation')
     categorized_lda = categorize_similarity(lda_similarity, strong_threshold=0.75, medium_threshold=0.50)
 
 
@@ -300,17 +324,17 @@ if __name__ == "__main__":
     lsa_similarity = get_lsa_similarity(tfidf_matrix)
 
     # Find most similar articles for each entry
-    print('Finding most similar articles using TFIDF')
+    logger.info('Finding most similar articles using TFIDF')
     most_similar_tfidf = find_most_similar(tfidf_similarity)
-    print('Finding most similar articles using BOW')
+    logger.info('Finding most similar articles using BOW')
     most_similar_bow = find_most_similar(bow_similarity)
-    print('Finding most similar articles using Jaccard')
+    logger.info('Finding most similar articles using Jaccard')
     most_similar_jaccard = find_most_similar(jaccard_similarity)
-    print('Finding most similar articles using Latent Semantic Analysis')
+    logger.info('Finding most similar articles using Latent Semantic Analysis')
     most_similar_lsa = find_most_similar(lsa_similarity)
 
     # Categorize LDA similarities
-    print('Finding most similar articles using Latent Dirichlet Allocation')
+    logger.info('Finding most similar articles using Latent Dirichlet Allocation')
     categorized_lda = categorize_similarity(lda_similarity, strong_threshold=0.75, medium_threshold=0.50)
 
 
@@ -330,9 +354,9 @@ if __name__ == "__main__":
     # save_similarity_to_csv(most_similar_lsa, lsa_similarity, "LSA")
 
     # Generate and save heatmaps
-    # print('Generating TFIDF Heatmap')
+    # logger.info('Generating TFIDF Heatmap')
     # plot_heatmap(tfidf_similarity, "TF-IDF")
-    # print('Generating BOW Heatmap')
+    # logger.info('Generating BOW Heatmap')
     # plot_heatmap(bow_similarity, "Bag-of-Words")
     # plot_heatmap(jaccard_similarity, "Jaccard Similarity")
     # plot_heatmap(lsa_similarity, "LSA")
@@ -341,19 +365,19 @@ if __name__ == "__main__":
     # tfidf_similarity_df = pd.DataFrame(tfidf_similarity, 
     #                              columns=["Article 1", "Article 2"], 
     #                              index=["Article 1", "Article 2"])
-    # print("\nText Similarity Matrix:")
-    # print(tfidf_similarity_df)
+    # logger.info("\nText Similarity Matrix:")
+    # logger.info(tfidf_similarity_df)
 
     # bow_similarity_df = pd.DataFrame(bow_similarity, 
     #                              columns=["Article 1", "Article 2"], 
     #                              index=["Article 1", "Article 2"])
-    # print("\nBag-of-Words Similarity Matrix:")
-    # print(bow_similarity_df)
+    # logger.info("\nBag-of-Words Similarity Matrix:")
+    # logger.info(bow_similarity_df)
 
     # similarity_df = pd.DataFrame({
     #     "TF-IDF Similarity": [tfidf_similarity[0,1]],
     #     "Bag-of-Words Similarity": [bow_similarity[0,1]]
     # })
 
-    # print("\nText Similarity Scores:")
-    # print(similarity_df)
+    # logger.info("\nText Similarity Scores:")
+    # logger.info(similarity_df)

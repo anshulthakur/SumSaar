@@ -6,6 +6,13 @@ from typing import List, Optional, TypeAlias
 
 from datetime import datetime
 from bs4 import BeautifulSoup
+import logging
+
+logger = logging.getLogger(__name__)
+
+if __name__=="__main__":
+    import sys
+    sys.path.append('../')
 
 from sumsaar.settings import PROJECT_DIRS, OLLAMA_URL
 from ollama import Client
@@ -44,7 +51,7 @@ import signal, os
 def signal_handler(signum, frame):
     global rewritten_articles
     global progress
-    print('Stopping')
+    logger.info('Stopping')
     save_progress()
     exit(0)
 
@@ -127,7 +134,7 @@ def parse_date(pub_date_str):
     try:
         return parser.parse(pub_date_str)
     except Exception as e:
-        print(f"Error parsing date: {e}")
+        logger.info(f"Error parsing date: {e}")
         return None
 
 def parse_feed(feed, datefilter= datetime.now().date(), max_entries=10, index=None):
@@ -137,17 +144,17 @@ def parse_feed(feed, datefilter= datetime.now().date(), max_entries=10, index=No
     for entry in feed_obj.entries:
         if entry.title in index:
             #Already parsed this one before.
-            print(f'Skip {entry.link}')
+            logger.info(f'Skip {entry.link}')
             entries += 1
             continue
         if max_entries>0 and entries >= max_entries:
             break
-        #print(entry)
+        #logger.info(entry)
         if hasattr(entry, "published"):
-            print(f'Fetching: {entry.link}')
+            logger.info(f'Fetching: {entry.link}')
             published_datetime = parse_date(entry.published)
             if published_datetime.date() == datefilter:
-                #print(entry)
+                #logger.info(entry)
                 #Extract title
                 title = entry.title
                 # Extracting and sanitizing HTML content
@@ -156,11 +163,11 @@ def parse_feed(feed, datefilter= datetime.now().date(), max_entries=10, index=No
                     ""
                 )
                 sanitized_content = BeautifulSoup(raw_content, "html.parser").get_text()
-                #print(sanitized_content)
+                #logger.info(sanitized_content)
                 if feed.feed_type != FeedType.story or len(sanitized_content)==0:
                     #Crawl the content out of the website using the link
                     try:
-                        print(f'Crawling for {entry.link}')
+                        logger.info(f'Crawling for {entry.link}')
                         # request = {
                         #             "urls": entry.link,
                         #             "priority": 10,
@@ -173,9 +180,9 @@ def parse_feed(feed, datefilter= datetime.now().date(), max_entries=10, index=No
                         article.download()
                         article.parse()
                         sanitized_content = article.text
-                        #print(sanitized_content)
+                        #logger.info(sanitized_content)
                     except:
-                        print(f'Error crawling news for {entry.link}. Try playwright')
+                        logger.info(f'Error crawling news for {entry.link}. Try playwright')
                         #Try playwright crawler
                         article = scrape_with_playwright(url=entry.link)
                         if article is not None:
@@ -236,6 +243,7 @@ class CopyWriterLLM(LLM):
                        "Ensure clarity, coherence, and eliminate redundant information. "
                        "It is important that you don't lose out on details, so be thorough."
                        "Maintain an objective tone.\n\n"
+                       "The content of the article must be well defined markdown, but do not add any ``` tags."
                        "Source Articles:\n{prompt}\n\n"
                        )
 
@@ -258,7 +266,7 @@ def fetch(max_entries=0, datefilter=datetime.now().date()):
         progress['stage'] = 'fetch'
     elif progress['stage'] != 'fetch':
         #Already fetched for the day. Skip
-        print('Skip fetching')
+        logger.info('Skip fetching')
         return
     
     feed_list = get_feed_list()
@@ -282,11 +290,11 @@ def fetch(max_entries=0, datefilter=datetime.now().date()):
                 feed_item.id = ii
                 articles.append(feed_item)
         except:
-            print('Exception occurred')
+            logger.info('Exception occurred')
             traceback.print_exc()
 
     with open(os.path.join(feeds_dir, 'cache.json'), 'wb') as fd:
-        #print(type(ArticleListModel.dump_json(articles, indent=2)))
+        #logger.info(type(ArticleListModel.dump_json(articles, indent=2)))
         fd.write(ArticleListModel.dump_json(articles, indent=2))
         #fd.write(json.dumps(articles.json(), indent=2))
 
@@ -323,7 +331,7 @@ def digest():
                                 'keywords': summary.keywords,
                                 'content':summary.summary}
                         })
-        print(summary)
+        logger.info(summary)
 
     with open(os.path.join(feeds_dir, 'summaries.json'), 'w') as fd:
         fd.write(json.dumps(summaries, indent=2))
@@ -351,9 +359,9 @@ def dedup():
                         format=LLMDedup.model_json_schema())
         related = LLMDedup.model_validate_json(response.message.content)
         if (related.result == UniqueStatus.related):
-            print(f"{compare_article['title']} seems related to {ref_article['title']}")
+            logger.info(f"{compare_article['title']} seems related to {ref_article['title']}")
         else:
-            print(f"{compare_article['title']} is UNRELATED to {ref_article['title']}")
+            logger.info(f"{compare_article['title']} is UNRELATED to {ref_article['title']}")
 
 def rewrite():
     def generate(prompt):
@@ -403,24 +411,24 @@ def rewrite():
     for ii in range(init_outer_index, len(similarity_data)):
         article_group = similarity_data[ii]
         
-        print(f'Article ID: {article_group[0]}, Number of articles: {len(article_group)}')
+        logger.info(f'Article ID: {article_group[0]}, Number of articles: {len(article_group)}')
         if init_inner_index == 0:
             reference_content = {'title': articles[str(article_group[0])]['title'],
                                 'content': articles[str(article_group[0])]['content'],
                                 'urls': [articles[str(article_group[0])]['link']]}
             rewritten_articles.append(reference_content)
-            print('Updated reference content for new article')
+            logger.info('Updated reference content for new article')
         
         if len(article_group)>1:
             if init_inner_index+1 < len(article_group):
                 for jj in range(max(init_inner_index, 1), len(article_group)):
                     related_id = article_group[jj]
-                    #print('Reference:')
-                    print(reference_content)
+                    #logger.info('Reference:')
+                    logger.info(reference_content)
 
-                    #print(f'Related: {related_id["id"]}')
+                    #logger.info(f'Related: {related_id["id"]}')
                     related_article = articles[str(related_id)]
-                    #print(related_article)
+                    #logger.info(related_article)
                     prompt = f"Article 1: {reference_content['content']}\nArticle 2: {related_article['content']}"
                     #llm.system_prompt = llm.system_prompt_template.format(reference_article = reference_content['content'])
                     response_content = generate(prompt)
@@ -434,15 +442,15 @@ def rewrite():
                     rewritten_articles[-1] = reference_content
                     progress['last_processed_index'] = [ii,jj]
 
-                    print('Rewritten article:')
+                    logger.info('Rewritten article:')
             else:
                 #We've already processed the last article in this group and must move on to the next outer index
                 init_inner_index = 0
-                print('Reset inner index')
+                logger.info('Reset inner index')
                 pass
-            print(reference_content)
+            logger.info(reference_content)
         else:
-            print('Single entry article')
+            logger.info('Single entry article')
             progress['last_processed_index'] = [ii,0]
 
         init_inner_index = 0 #Reset inner index to that next articles iterate from 0
@@ -529,7 +537,7 @@ def load_progress():
         traceback.print_exc()
         pass
 
-    print(progress)
+    logger.info(progress)
 
 def save_progress():
     global progress
@@ -565,19 +573,19 @@ def clear_cache():
 def main(datefilter=datetime.now().date()):
     load_progress() #2025-04-28 11:53:23.110309
     if progress['date'].date() != datetime.today().date():
-        print('Clear cache')
+        logger.info('Clear cache')
         clear_cache()
 
     fetch(max_entries=0, datefilter=datefilter)
     if progress['stage'] == 'fetch':
         group_articles()
         progress['stage'] = 'grouped'
-    print('Grouping done')
+    logger.info('Grouping done')
     if progress['stage'] != 'compacted':
         #Already grouped, skip
         compact()
         progress['stage'] = 'compacted'
-    print('Compacting done')
+    logger.info('Compacting done')
     try:
         rewrite()
     except:
