@@ -203,6 +203,7 @@ class LLM(object):
     def __init__(self, host="http://localhost:11434", **kwargs):
         self.client = Client(
             host=OLLAMA_URL,
+            timeout=5*60
             )
         self.system_prompt_template = ''
         self.system_prompt = ''
@@ -365,19 +366,31 @@ def dedup():
 
 def rewrite():
     def generate(prompt):
-        response = llm.client.generate( model='llama3.2:latest', 
-                                                system=llm.system_prompt,
-                                                prompt=llm.template.format(prompt=prompt),
-                                                #template=llm.template,
-                                                stream=False,
-                                                keep_alive='1m',
-                                                options={
-                                                   'num_ctx': 8196*2,
-                                                    'repeat_last_n': 0,
-                                                    'temperature': 0.5,
-                                                },
-                                                format=LLMArticle.model_json_schema())
-        return LLMArticle.model_validate_json(response.response)
+        try:
+            response = llm.client.generate( model='qwen3:14b', 
+                                            system=llm.system_prompt,
+                                            prompt=llm.template.format(prompt=prompt),
+                                            #template=llm.template,
+                                            stream=False,
+                                            keep_alive='10m',
+                                            options={
+                                                'num_ctx': 8196*2,
+                                                'repeat_last_n': 64,
+                                                "temperature": 0.3,
+                                                "seed" : 0,
+                                                "top_k" : 0,
+                                                "top_p" : 0.8,
+                                                "min_p" : 0.1,
+                                                "mirostat": 0,
+                                                "repeat_penalty": 1.05,
+                                                "num_predict": 1024*4,
+                                            },
+                                            format=LLMArticle.model_json_schema())
+            return LLMArticle.model_validate_json(response.response)
+        except:
+            logger.error('LLM timedout.')
+            response = LLMArticle(title='', content='...')
+            return response
 
     global rewritten_articles
     similarity_data = {}
