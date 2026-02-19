@@ -1,8 +1,13 @@
 # SumSaar - Project Context for Gemini
 
+**IMPORTANT RULES**
+- Always create and update a `steps.md` file in the docs folder to lay out the plan of action stepwise and keep updating each step once it is done. This will serve as a cross-chat and cross-system state.
+- Always club your actions into batch requests to avoid making too many calls to the LLM servers and exhaust the rate limit.
+- In case you want to write and execute tests to verify functionality, always do so within the virtual environment provided in the venv folder.
+
 ## 1. Objective
 The goal of **SumSaar** is to build a news aggregation pipeline that:
-1.  Ingests news stories from multiple RSS feeds.
+1.  Ingests news stories from multiple sources including RSS feeds.
 2.  Detects and groups semantically similar stories (deduplication/clustering).
 3.  Synthesizes a single, comprehensive article from a cluster of related news items using LLMs.
 4.  Provides a simple web interface to browse and read these consolidated stories.
@@ -37,8 +42,3 @@ The goal of **SumSaar** is to build a news aggregation pipeline that:
 - **Scraping**: Playwright integration can be flaky; the code currently handles exceptions by skipping failed downloads.
 - **Entity Extraction**: Standard NER tools sometimes miss obvious subject entities (e.g., "gold" in a financial article).
 - **Development Philosophy**: Focus on a minimal working prototype first to avoid getting overwhelmed by complex LLM options.
-
-## 6. Development Environment
-- The project runs via Docker Compose.
-- Services include: Airflow (Webserver, Scheduler, Worker, Triggerer), Postgres, Redis, and Streamlit.
-- The `sumsaar` directory is volume-mounted into the containers to facilitate development.

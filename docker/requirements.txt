@@ -14,4 +14,6 @@ playwright
 seaborn
 matplotlib
 spacy
-streamlit
+openai
+django
+psycopg2-binary

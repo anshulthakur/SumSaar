@@ -89,23 +89,24 @@ x-airflow-common:
       condition: service_healthy
 
 services:
-  streamlit:
+  django:
     build:
       context: .
-      dockerfile: ./Streamlit_Dockerfile
+      dockerfile: ./Django_Dockerfile
     restart: always
-    command: "streamlit run serve.py --server.port=8501 --server.address=0.0.0.0"
-    container_name: streamlit_server
-    healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8501/_stcore/health"]
-      interval: 10s
-      timeout: 30s
-      retries: 5
-      start_period: 60s
+    # Run migrations and start the server
+    command: >
+      sh -c "python webserver/manage.py makemigrations chitrapat &&
+             python webserver/manage.py migrate &&
+             python webserver/manage.py runserver 0.0.0.0:8000"
+    container_name: sumsaar_django
     volumes:
     - ../sumsaar:/app
     ports:
-    - "8501:8501"
+    - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   postgres:
     image: postgres:13

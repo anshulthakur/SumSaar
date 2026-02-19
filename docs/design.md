@@ -26,3 +26,5 @@ I could ask the LLM to compare the articles pairwise and bin them accordingly (t
 # Collating and re-writing the article
 Once the articles have been binned on the basis of similarity, the LLM may rewrite the entire piece from the information obtained from the articles in the bin.
 
+# Backend in Django: Why?
+Why not Flask or FastAPI? Mainly because during the initial versions of the project (beyond streamlit), I want something that can render easily and yet is flexible enough to incorporate future scaling. Flask provides templating, but I'm not sure how well it plays with Async. FastAPI does not provide templating out-of-the-box. Django support ASGI and WSGI, and can play along well with Celery. So, seems OK to me. The frontend down the line would move into a react native webapp (not PWA).
