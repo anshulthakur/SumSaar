@@ -5,7 +5,7 @@ html5lib
 requests
 nltk
 scikit-learn
-git+https://github.com/julianpollmann/gensim-modifications.git@numpy2test0
+gensim
 scipy
 pandas
 newspaper4k

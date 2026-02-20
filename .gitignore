@@ -178,3 +178,4 @@ airflow/plugins/**
 
 sumsaar/runtime/**
 **/migrations/**
+docker/nltk_data

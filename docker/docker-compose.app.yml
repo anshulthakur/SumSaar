@@ -4,12 +4,12 @@ services:
       context: .
       dockerfile: ./Django_Dockerfile
     restart: always
-    command: python webserver/manage.py runserver 0.0.0.0:8000
+    command: python sumsaar/webserver/manage.py runserver 0.0.0.0:8000
     container_name: sumsaar_django
     volumes:
-    - ../sumsaar:/app
+    - ../:/app
     ports:
-    - "8000:8000"
+    - "8010:8000"
     depends_on:
       - django-migrate
 
@@ -18,10 +18,10 @@ services:
       context: .
       dockerfile: ./Django_Dockerfile
     command: >
-      sh -c "python webserver/manage.py makemigrations chitrapat &&
-             python webserver/manage.py migrate"
+      sh -c "python sumsaar/webserver/manage.py makemigrations &&
+             python sumsaar/webserver/manage.py migrate"
     volumes:
-    - ../sumsaar:/app
+    - ../:/app
     depends_on:
       postgres:
         condition: service_healthy
@@ -32,21 +32,21 @@ services:
       dockerfile: ./Celery_Dockerfile
     command: celery -A webserver worker -l info
     volumes:
-      - ../sumsaar:/app
+      - ../:/app
     depends_on:
       - django
       - redis
 
   postgres:
-    image: postgres:13
+    image: pgvector/pgvector:pg18
     environment:
-      POSTGRES_USER: airflow
-      POSTGRES_PASSWORD: airflow
-      POSTGRES_DB: airflow
+      POSTGRES_USER: nayak
+      POSTGRES_PASSWORD: testing@123
+      POSTGRES_DB: sumsaar
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "airflow"]
+      test: ["CMD", "pg_isready", "-U", "nayak", "-d", "sumsaar"]
       interval: 10s
       retries: 5
       start_period: 5s
