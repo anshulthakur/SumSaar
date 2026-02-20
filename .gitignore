@@ -177,3 +177,4 @@ airflow/config/**
 airflow/plugins/**
 
 sumsaar/runtime/**
+**/migrations/**
