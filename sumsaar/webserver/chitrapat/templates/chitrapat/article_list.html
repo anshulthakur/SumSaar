@@ -10,6 +10,7 @@
     <nav class="navbar navbar-dark bg-dark mb-4">
         <div class="container">
             <a class="navbar-brand" href="{% url 'chitrapat:article_list' %}">SumSaar</a>
+            <button class="btn btn-outline-success" id="fetch-button">Fetch</button>
         </div>
     </nav>
 
@@ -40,5 +41,21 @@
             {% endfor %}
         </div>
     </div>
+    <script>
+        document.getElementById('fetch-button').addEventListener('click', function() {
+            fetch('{% url "chitrapat:fetch_articles" %}', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': '{{ csrf_token }}',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({})
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+            });
+        });
+    </script>
 </body>
 </html>

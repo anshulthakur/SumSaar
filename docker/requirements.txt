@@ -3,8 +3,8 @@ ollama
 beautifulsoup4
 html5lib
 requests
-nltk 
-scikit-learn 
+nltk
+scikit-learn
 git+https://github.com/julianpollmann/gensim-modifications.git@numpy2test0
 scipy
 pandas
@@ -17,3 +17,5 @@ spacy
 openai
 django
 psycopg2-binary
+celery
+redis

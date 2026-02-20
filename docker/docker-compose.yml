@@ -94,19 +94,38 @@ services:
       context: .
       dockerfile: ./Django_Dockerfile
     restart: always
-    # Run migrations and start the server
-    command: >
-      sh -c "python webserver/manage.py makemigrations chitrapat &&
-             python webserver/manage.py migrate &&
-             python webserver/manage.py runserver 0.0.0.0:8000"
+    command: python webserver/manage.py runserver 0.0.0.0:8000
     container_name: sumsaar_django
     volumes:
     - ../sumsaar:/app
     ports:
     - "8000:8000"
     depends_on:
+      - django-migrate
+
+  django-migrate:
+    build:
+      context: .
+      dockerfile: ./Django_Dockerfile
+    command: >
+      sh -c "python webserver/manage.py makemigrations chitrapat &&
+             python webserver/manage.py migrate"
+    volumes:
+    - ../sumsaar:/app
+    depends_on:
       postgres:
         condition: service_healthy
+
+  celery-worker:
+    build:
+      context: .
+      dockerfile: ./Celery_Dockerfile
+    command: celery -A webserver worker -l info
+    volumes:
+      - ../sumsaar:/app
+    depends_on:
+      - django
+      - redis
 
   postgres:
     image: postgres:13

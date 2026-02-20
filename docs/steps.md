@@ -1,0 +1,19 @@
+- [*] Create a `steps.md` file to track progress.
+- [*] **Frontend (Django Template):**
+    - [*] Locate the main page navbar in the Django templates.
+    - [*] Add a "Fetch" button to the navbar.
+    - [*] The button will trigger a POST request to a new URL endpoint (e.g., `/fetch-articles`).
+- [*] **Backend (Django Views & URLs):**
+    - [*] Create a new URL pattern in `sumsaar/webserver/chitrapat/urls.py` that maps `/fetch-articles` to a new view function.
+    - [*] Create a new view function in `sumsaar/webserver/chitrapat/views.py` that will:
+        - [*] Receive the POST request.
+        - [*] Trigger a Celery task to fetch the articles.
+        - [*] Return a JSON response to the frontend indicating that the fetch process has started.
+- [*] **Celery Task:**
+    - [*] Find where the celery tasks are defined.
+    - [*] Create a new celery task to fetch the articles.
+    - [*] Make sure the celery task is registered with the celery app.
+- [*] **Verification:**
+    - [*] Check the frontend to make sure the button is present and that it sends the POST request.
+    - [*] Check the backend to make sure the view receives the POST request and triggers the celery task.
+    - [*] Check the celery worker to make sure the task is executed.
