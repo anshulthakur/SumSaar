@@ -6,6 +6,9 @@ from sumsaar.settings import CRAWLER_URL
 
 from playwright.sync_api import sync_playwright
 import newspaper 
+import logging
+
+logger = logging.getLogger(__name__)
 
 class Crawl4Ai:
     def __init__(self, base_url: str = "http://localhost:11235", api_token: str = None):
@@ -79,12 +82,33 @@ def scrape_with_playwright(url):
     # Using Playwright to render JavaScript
     content = ''
     with sync_playwright() as p:
-        browser = p.chromium.launch()
-        page = browser.new_page()
-        page.goto(url)
-        #time.sleep(2) # Allow the javascript to render
-        content = page.content()
-        browser.close()
+        ws_endpoint = os.getenv("PLAYWRIGHT_WS_ENDPOINT")
+        if ws_endpoint:
+            logger.info(f'Trying remote endpoint {ws_endpoint}.')
+            # Retry connection logic as the container might be starting up
+            for attempt in range(5):
+                try:
+                    browser = p.chromium.connect(ws_endpoint, timeout=30000)
+                    break
+                except Exception as e:
+                    logger.warning(f"Attempt {attempt+1}: Could not connect to Playwright at {ws_endpoint}: {e}")
+                    time.sleep(2)
+            else:
+                logger.error("Failed to connect to Playwright after multiple attempts.")
+                return None
+        else:
+            logger.info(f'Launch local')
+            browser = p.chromium.launch()
+
+        try:
+            logger.info(f'Opening browser.')
+            page = browser.new_page()
+            logger.info(f'Opening {url}.')
+            page.goto(url)
+            #time.sleep(2) # Allow the javascript to render
+            content = page.content()
+        finally:
+            browser.close()
 
     # Using Newspaper4k to parse the page content
     if len(content)>0:

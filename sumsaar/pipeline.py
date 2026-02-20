@@ -253,23 +253,33 @@ def save_combined_json(categorized_tfidf, categorized_bow, categorized_jaccard, 
 def group_articles():
     load_article_cache()
     # Preprocess articles
+    logger.info('Preprocessing')
     preprocessed_articles = [preprocess(article) for article in article_contents]
     # Compute TF-IDF & BoW vectors
+    logger.info('TFIDF')
     tfidf_matrix = get_tfidf_matrix(preprocessed_articles)
+    logger.info('BOW')
     bow_matrix = get_bow_matrix(preprocessed_articles)
 
     # Prepare corpus and train LDA model
+    logger.info('LDA Training')
     dictionary, corpus = prepare_lda_corpus(preprocessed_articles)
     lda_model = train_lda_model(corpus, dictionary)
 
     # Get topic vectors & compute similarity
+    logger.info('Topic vectors')
     topic_vectors = get_topic_vectors(lda_model, corpus)
+    logger.info('LDA similarity')
     lda_similarity = compute_lda_similarity(topic_vectors)
 
     # Calculate similarity
+    logger.info('TFIDF Similarity')
     tfidf_similarity = get_similarity(tfidf_matrix)
+    logger.info('BOW Similarity')
     bow_similarity = get_similarity(bow_matrix)
+    logger.info('Jaccard Similarity')
     jaccard_similarity = get_jaccard_similarity(preprocessed_articles)
+    logger.info('LSA Similarity')
     lsa_similarity = get_lsa_similarity(tfidf_matrix)
 
     # Find most similar articles for each entry
