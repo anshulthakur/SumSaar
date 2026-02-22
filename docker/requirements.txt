@@ -19,3 +19,4 @@ django
 psycopg2-binary
 celery
 redis
+cupy-cuda12x

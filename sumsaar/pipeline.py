@@ -8,7 +8,13 @@ import matplotlib.pyplot as plt
 
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.decomposition import TruncatedSVD
+use_gpu = True
+try:
+    import cupy as cp
+    from cuml.decomposition import TruncatedSVD
+except:
+    from sklearn.decomposition import TruncatedSVD
+    use_gpu = False
 
 import gensim
 from gensim import corpora
@@ -20,6 +26,7 @@ feeds_dir = PROJECT_DIRS.get('runtime')
 import logging
 
 logger = logging.getLogger(__name__)
+
 
 
 try:
@@ -149,10 +156,28 @@ def get_jaccard_similarity(corpus):
 
 ### **Latent Semantic Analysis (LSA)**
 def get_lsa_similarity(tfidf_matrix, n_components=100):
+    logger.info("Truncated SVD")
     svd = TruncatedSVD(n_components)
+    logger.info("Fitting")
     lsa_matrix = svd.fit_transform(tfidf_matrix)
+    logger.info("Cosine similarity")
     return cosine_similarity(lsa_matrix)
 
+
+def get_lsa_similarity_gpu(tfidf_matrix, n_components=100):
+    # Convert sparse TF-IDF to CuPy array
+    X = cp.array(tfidf_matrix.toarray())
+    
+    svd = TruncatedSVD(n_components=n_components)
+    lsa_matrix = svd.fit_transform(X)
+    
+    # Normalize rows
+    norms = cp.linalg.norm(lsa_matrix, axis=1, keepdims=True)
+    lsa_matrix = lsa_matrix / norms
+    
+    # Cosine similarity = dot product of normalized vectors
+    similarity = cp.dot(lsa_matrix, lsa_matrix.T)
+    return similarity.get()  # back to NumPy if needed
 
 ### **Generate Heatmap and Save Image**
 def plot_heatmap(similarity_matrix, method_name):
@@ -279,8 +304,12 @@ def group_articles():
     bow_similarity = get_similarity(bow_matrix)
     logger.info('Jaccard Similarity')
     jaccard_similarity = get_jaccard_similarity(preprocessed_articles)
-    logger.info('LSA Similarity')
-    lsa_similarity = get_lsa_similarity(tfidf_matrix)
+    if use_gpu:
+        logger.info('LSA Similarity (with GPU)')
+        lsa_similarity = get_lsa_similarity_gpu(tfidf_matrix)
+    else:
+        logger.info('LSA Similarity')
+        lsa_similarity = get_lsa_similarity(tfidf_matrix)
 
     # Find most similar articles for each entry
     logger.info('Finding most similar articles using TFIDF')

@@ -42,6 +42,12 @@ services:
       - playwright
     environment:
       PLAYWRIGHT_WS_ENDPOINT: ws://playwright:3000?ws=1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+
 
   postgres:
     image: pgvector/pgvector:pg18
