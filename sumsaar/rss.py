@@ -256,15 +256,26 @@ class SummaryLLM(LLM):
 class CopyWriterLLM(LLM):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.system_prompt = ("You are an AI editor."
-                              " Your task is to merge and rewrite the provided articles into a single cohesive, objective, and well-structured piece."
-                            "Always generate objective and neutral articles without bias and only based on the information contained in the articles."
-                            "IMPORTANT: Always return the output in JSON format with structure: {\"title\": <title of article>, \"content\": <summary>, \"keywords\": <list of salient keywords in article>}"
-                        )
+        # self.system_prompt = ("You are an AI editor."
+        #                       " Your task is to merge and rewrite the provided articles into a single cohesive, objective, and well-structured piece."
+        #                     "Always generate objective and neutral articles without bias and only based on the information contained in the articles."
+        #                     "IMPORTANT: Always return the output in JSON format with structure: {\"title\": <title of article>, \"content\": <summary>, \"keywords\": <list of salient keywords in article>}"
+        #                 )
+        
+        self.system_prompt = ("You are a summarization and synthesis assistant. I will provide two articles."
+                              "Your task is to: Write a merged synthesis article:"
+                                "- Integrate the information into a coherent narrative, weaving together both sources."
+                                "- Use structured sections or bullet points as needed."
+                                "- Do not omit nuance or subtle points."
+                                "- Maintain balance and factual accuracy."
+                                "- Avoid introducing information not present in the sources."
+                                "- Use a professional, neutral tone suitable for publication."
+                                "- Organize with clear paragraphs and logical flow."
+                                "IMPORTANT: Always return the output in JSON format with structure: {\"title\": <title of article>, \"content\": <summary>, \"keywords\": <list of salient keywords in article>}"
+                            )
         self.template=("Combine the following articles into a single, well-structured news piece. "
-                       "Ensure clarity, coherence, and eliminate redundant information. "
-                       "It is important that you don't lose out on details, so be thorough."
-                       "Maintain an objective tone.\n\n"
+                       "Ensure clarity, coherence, and eliminate redundant information."
+                       "It is important that you don't lose out on details, so be consise and thorough.\n\n"
                        "The content of the article must be well defined markdown, but do not add any ``` tags."
                        "Source Articles:\n{prompt}\n\n"
                        )
@@ -485,6 +496,8 @@ def rewrite():
 
     progress['stage'] = 'rewrite'
 
+    if len(progress['last_processed_index'])==0:
+        progress['last_processed_index'] = [0,0]
     init_outer_index = progress['last_processed_index'][0]
     init_inner_index = progress['last_processed_index'][1]
 
@@ -655,7 +668,9 @@ def compact():
     forest = build_forest(edges, set(ids))
 
     # Save forest to PipelineState
-    state, _ = PipelineState.objects.get_or_create(pk=1)
+    state = PipelineState.objects.first()
+    if not state:
+        state = PipelineState()
     state.clusters = forest
     state.save()
 
@@ -679,7 +694,9 @@ def save_progress():
     global progress
     global rewritten_articles
     
-    state, _ = PipelineState.objects.get_or_create(pk=1)
+    state = PipelineState.objects.first()
+    if not state:
+        state = PipelineState()
     state.stage = progress['stage']
     state.last_processed_index = progress['last_processed_index']
     state.rewritten_articles = rewritten_articles

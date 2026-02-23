@@ -157,12 +157,12 @@ def get_jaccard_similarity(corpus):
 def get_lsa_similarity(tfidf_matrix, n_components=100):
     logger.info("Truncated SVD")
     logger.info(tfidf_matrix.shape)
-    if tfidf_matrix.shape[0] <= 200:
+    if tfidf_matrix.shape[0] <= 300:
         n_components = 30
     elif tfidf_matrix.shape[0] <= 500:
-        n_components = 100
+        n_components = 50
     else:
-        n_components = 200
+        n_components = 70
     svd = TruncatedSVD(n_components=n_components)
     logger.info("Fitting")
     lsa_matrix = svd.fit_transform(tfidf_matrix)

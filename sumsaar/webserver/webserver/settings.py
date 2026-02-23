@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -93,7 +94,13 @@ DATABASES = {
     'mongo': {
         'ENGINE': 'django_mongodb_backend',
         'NAME': 'sumsaar_staging',
-        'CLIENT': {'host': 'mongodb://mongo:27017'},
+        'USER': os.environ.get('MONGO_INITDB_ROOT_USERNAME', 'nayak'),
+        'PASSWORD': os.environ.get('MONGO_INITDB_ROOT_PASSWORD', 'testing123'),
+        'HOST': 'mongo',
+        'PORT': 27017,
+        # 'OPTIONS': {
+        #     'authSource': 'admin',
+        # },
     }
 }
 

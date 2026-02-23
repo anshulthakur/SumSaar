@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pipeline Dashboard - SumSaar</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-dark mb-4">
+        <div class="container">
+            <a class="navbar-brand" href="{% url 'chitrapat:article_list' %}">SumSaar</a>
+            <div class="navbar-nav flex-row">
+                <a class="nav-link me-3" href="{% url 'chitrapat:pipeline_dashboard' %}">Dashboard</a>
+                <a class="nav-link active" href="{% url 'chitrapat:raw_article_list' %}">Raw Articles</a>
+            </div>
+            <button class="btn btn-outline-success" id="fetch-button">Fetch</button>
+        </div>
+    </nav>
+
+    <div class="container">
+        <h1 class="mb-4">Pipeline Dashboard</h1>
+
+        <!-- Pipeline State Card -->
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                Current State
+            </div>
+            <div class="card-body">
+                {% if state %}
+                    <div class="row">
+                        <div class="col-md-4">
+                            <strong>Stage:</strong> <span class="badge bg-info text-dark">{{ state.stage }}</span>
+                        </div>
+                        <div class="col-md-4">
+                            <strong>Last Processed Index:</strong> {{ state.last_processed_index }}
+                        </div>
+                        <div class="col-md-4">
+                            <strong>Updated:</strong> {{ state.updated_at|date:"Y-m-d H:i:s" }}
+                        </div>
+                    </div>
+                    <hr>
+                    <h5>Clusters ({{ state.clusters|length }})</h5>
+                    <div class="overflow-auto" style="max-height: 200px;">
+                        <pre>{{ state.clusters|pprint }}</pre>
+                    </div>
+                {% else %}
+                    <p class="text-muted">No pipeline state found.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Stats Row -->
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <h5 class="card-title">Raw Articles</h5>
+                        <p class="display-4">{{ raw_count }}</p>
+                        <a href="{% url 'chitrapat:raw_article_list' %}" class="btn btn-outline-primary">View All</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Similarity Results Table -->
+        <div class="card">
+            <div class="card-header">
+                Recent Similarity Results (Sample)
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped table-sm">
+                        <thead>
+                            <tr>
+                                <th>Ref ID</th>
+                                <th>Scores Data</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for result in similarity_results %}
+                            <tr>
+                                <td>{{ result.reference_id }}</td>
+                                <td>
+                                    <details>
+                                        <summary>View JSON</summary>
+                                        <pre class="small">{{ result.scores|pprint }}</pre>
+                                    </details>
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="2">No similarity results found.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -2,6 +2,7 @@ from django.db import models
 from django.db.models import Q
 from django.utils.safestring import mark_safe
 import markdown
+from django_mongodb_backend.fields import ObjectIdAutoField
 
 # Create your models here.
 class Article(models.Model):
@@ -38,6 +39,7 @@ class Article(models.Model):
 
 class RawArticle(models.Model):
     """Replaces cache.json: Stores the raw scraped feed items."""
+    id = ObjectIdAutoField(primary_key=True)
     feed_id = models.IntegerField(null=True) # ID from the feed loop
     title = models.CharField(max_length=1000)
     link = models.URLField(max_length=2000)
@@ -51,6 +53,7 @@ class RawArticle(models.Model):
 
 class SimilarityResult(models.Model):
     """Replaces similarity_results_combined.json."""
+    id = ObjectIdAutoField(primary_key=True)
     reference_id = models.IntegerField() # ID of the RawArticle
     # Stores the complex nested dict: {'LSA': [...], 'Jaccard': [...]}
     scores = models.JSONField(default=dict) 
@@ -58,6 +61,7 @@ class SimilarityResult(models.Model):
 
 class PipelineState(models.Model):
     """Replaces progress.json."""
+    id = ObjectIdAutoField(primary_key=True)
     stage = models.CharField(max_length=50)
     last_processed_index = models.JSONField(default=list) # [i, j]
     updated_at = models.DateTimeField(auto_now=True)

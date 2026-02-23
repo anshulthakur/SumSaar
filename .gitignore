@@ -179,3 +179,5 @@ airflow/plugins/**
 sumsaar/runtime/**
 **/migrations/**
 docker/nltk_data
+docker/mongo-data/**
+docker/postgres-data/**

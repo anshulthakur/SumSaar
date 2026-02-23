@@ -10,6 +10,10 @@
     <nav class="navbar navbar-dark bg-dark mb-4">
         <div class="container">
             <a class="navbar-brand" href="{% url 'chitrapat:article_list' %}">SumSaar</a>
+            <div class="navbar-nav flex-row">
+                <a class="nav-link me-3" href="{% url 'chitrapat:pipeline_dashboard' %}">Dashboard</a>
+                <a class="nav-link active" href="{% url 'chitrapat:raw_article_list' %}">Raw Articles</a>
+            </div>
             <button class="btn btn-outline-success" id="fetch-button">Fetch</button>
         </div>
     </nav>

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raw Article Inspection - SumSaar</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-dark mb-4">
+        <div class="container">
+            <a class="navbar-brand" href="{% url 'chitrapat:article_list' %}">SumSaar</a>
+            <div class="navbar-nav flex-row">
+                <a class="nav-link me-3" href="{% url 'chitrapat:pipeline_dashboard' %}">Dashboard</a>
+                <a class="nav-link active" href="{% url 'chitrapat:raw_article_list' %}">Raw Articles</a>
+            </div>
+            <button class="btn btn-outline-success" id="fetch-button">Fetch</button>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="row">
+            <div class="col-lg-10 offset-lg-1">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Raw Article Inspection (ID: {{ article.feed_id }})</h5>
+                        <a href="{% url 'chitrapat:raw_article_list' %}" class="btn btn-sm btn-secondary">Back</a>
+                    </div>
+                    <div class="card-body">
+                        <h2 class="card-title">{{ article.title }}</h2>
+                        <p class="text-muted">
+                            <strong>Fetched:</strong> {{ article.fetched_at }} <br>
+                            <strong>Original Link:</strong> <a href="{{ article.link }}" target="_blank">{{ article.link }}</a>
+                            {% if article.db_id %}
+                                <br><strong>Linked DB ID:</strong> {{ article.db_id }}
+                            {% endif %}
+                        </p>
+                        <hr>
+                        <h6>Raw Content:</h6>
+                        <div class="p-3 bg-light border rounded">
+                            <pre style="white-space: pre-wrap;">{{ article.content }}</pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
