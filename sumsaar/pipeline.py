@@ -21,6 +21,13 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+import django
+from django.conf import settings
+if not settings.configured:
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "sumsaar.webserver.webserver.settings")
+    django.setup()
+
+from chitrapat.models import RawArticle, SimilarityResult
 
 try:
     nltk.data.find('tokenizers/punkt')
@@ -56,11 +63,10 @@ def load_article_cache():
     global article_contents
     global index_to_metadata
 
-    with open(os.path.join(feeds_dir, 'cache.json'), 'r') as fd:
-        cache = json.load(fd)
+    raw_articles = RawArticle.objects.all().order_by('feed_id')
+    articles = [{'id': ra.feed_id, 'title': ra.title, 'content': ra.content} for ra in raw_articles]
 
-    # Sort articles by ID and store (id, title, content)
-    articles = sorted(cache, key=lambda x: x['id'])
+    # Articles are already sorted by feed_id from DB query
     article_contents = [article['content'] for article in articles]
 
     # Create mapping of index to (id, title)
@@ -149,10 +155,19 @@ def get_jaccard_similarity(corpus):
 
 ### **Latent Semantic Analysis (LSA)**
 def get_lsa_similarity(tfidf_matrix, n_components=100):
-    svd = TruncatedSVD(n_components)
+    logger.info("Truncated SVD")
+    logger.info(tfidf_matrix.shape)
+    if tfidf_matrix.shape[0] <= 200:
+        n_components = 30
+    elif tfidf_matrix.shape[0] <= 500:
+        n_components = 100
+    else:
+        n_components = 200
+    svd = TruncatedSVD(n_components=n_components)
+    logger.info("Fitting")
     lsa_matrix = svd.fit_transform(tfidf_matrix)
+    logger.info("Cosine similarity")
     return cosine_similarity(lsa_matrix)
-
 
 ### **Generate Heatmap and Save Image**
 def plot_heatmap(similarity_matrix, method_name):
@@ -245,10 +260,12 @@ def save_combined_json(categorized_tfidf, categorized_bow, categorized_jaccard, 
         }
 
     # Save JSON to file
-    filename = os.path.join(feeds_dir, "similarity_results_combined.json")
-    with open(filename, "w") as json_file:
-        json.dump(combined_data, json_file, indent=4, default=str)
-    logger.info(f"✅ Saved: {filename}")
+    for article_id, data in combined_data.items():
+        SimilarityResult.objects.update_or_create(
+            reference_id=int(article_id),
+            defaults={'scores': data['scores']}
+        )
+    logger.info(f"✅ Saved similarity results to MongoDB")
 
 def group_articles():
     load_article_cache()

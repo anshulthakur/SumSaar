@@ -13,8 +13,9 @@ services:
     depends_on:
       - django-migrate
       - playwright
-    environment:
-      PLAYWRIGHT_WS_ENDPOINT: ws://playwright:3000?ws=1
+      - mongo
+    env_file:
+      - image_env
 
   django-migrate:
     build:
@@ -28,6 +29,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      mongo:
+        condition: service_started
 
   celery-worker:
     build:
@@ -40,8 +43,9 @@ services:
       - django
       - redis
       - playwright
-    environment:
-      PLAYWRIGHT_WS_ENDPOINT: ws://playwright:3000?ws=1
+      - mongo
+    env_file:
+      - image_env
 
   postgres:
     image: pgvector/pgvector:pg18
@@ -78,6 +82,16 @@ services:
       - "3000:3000"
     restart: always
 
+  mongo:
+    image: mongo:8.0
+    ports:
+      - "27017:27017"
+    restart: always
+    volumes:
+      - mongo-data:/data/db
+    env_file:
+      - image_env
+
 volumes:
   postgres-data:
     driver: local
@@ -85,3 +99,10 @@ volumes:
       o: bind
       type: none
       device: ./postgres-data
+
+  mongo-data:
+    driver: local
+    driver_opts:
+      o: bind
+      type: none
+      device: ./mongo-data

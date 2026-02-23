@@ -10,19 +10,32 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+logging.basicConfig(
+level=logging.INFO,
+format="%(asctime)s [%(levelname)s] %(message)s"
+)
+
 if __name__=="__main__":
     import sys
     sys.path.append('../')
 
-from sumsaar.settings import PROJECT_DIRS, OLLAMA_URL
-from ollama import Client
+from sumsaar.settings import PROJECT_DIRS, OLLAMA_URL, SUMMARY_LLM
+from openai import OpenAI
+
+import django
+from django.conf import settings
+if not settings.configured:
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "sumsaar.webserver.webserver.settings")
+    django.setup()
+
+from chitrapat.models import Article as DbArticle, RawArticle, PipelineState, SimilarityResult
 
 from sumsaar.crawler import scrape_with_playwright
 
 feeds_dir = PROJECT_DIRS.get('runtime')
 
 import feedparser
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import itertools
 
@@ -85,6 +98,7 @@ class FeedItem(BaseModel):
     content: str
     date: str
     id: Optional[int]=Field(gt=0)
+    db_id: Optional[int] = None # If set, this is an existing DB article
 
 ArticleList: TypeAlias = list[FeedItem]
 ArticleListModel = TypeAdapter(ArticleList)
@@ -97,6 +111,7 @@ class LLMSummary(BaseModel):
 class LLMArticle(BaseModel):
   title: str
   content: str
+  keywords: List[str] = []
 
 class UniqueStatus(str, Enum):
     related = 'RELATED'
@@ -201,9 +216,13 @@ def parse_feed(feed, datefilter= datetime.now().date(), max_entries=10, index=No
 
 class LLM(object):
     def __init__(self, host="http://localhost:11434", **kwargs):
-        self.client = Client(
-            host=OLLAMA_URL,
-            timeout=5*60
+        base_url = OLLAMA_URL
+        if '/v1' not in base_url:
+            base_url = f"{base_url}/v1"
+        self.client = OpenAI(
+            base_url=base_url,
+            api_key='ollama',
+            timeout=5*60,
             )
         self.system_prompt_template = ''
         self.system_prompt = ''
@@ -230,7 +249,8 @@ class SummaryLLM(LLM):
                         "details related to current affairs, politics, economics, or global developments. "
                         "Keep the summary concise and free from predefined structures or bullet points. "
                         "If the article does not contain hard news but is more of a lifestyle, entertainment, "
-                        "or opinion piece, simply state: 'This is not a news article' without further explanation.")
+                        "or opinion piece, simply state: 'This is not a news article' without further explanation."
+                        "IMPORTANT: Always return the output in JSON format with structure: {\"title\": <title of article>, \"content\": <summary>, \"keywords\": <list of salient keywords in article>}")
         self.system_prompt = self.system_prompt_template
 
 class CopyWriterLLM(LLM):
@@ -239,6 +259,7 @@ class CopyWriterLLM(LLM):
         self.system_prompt = ("You are an AI editor."
                               " Your task is to merge and rewrite the provided articles into a single cohesive, objective, and well-structured piece."
                             "Always generate objective and neutral articles without bias and only based on the information contained in the articles."
+                            "IMPORTANT: Always return the output in JSON format with structure: {\"title\": <title of article>, \"content\": <summary>, \"keywords\": <list of salient keywords in article>}"
                         )
         self.template=("Combine the following articles into a single, well-structured news piece. "
                        "Ensure clarity, coherence, and eliminate redundant information. "
@@ -262,6 +283,23 @@ class DedupLLM(LLM):
                               "The reference article is : {reference_article}"
                         )
 
+def fetch_context_articles(days=3):
+    """Fetches recent articles from DB to provide context for deduplication."""
+    cutoff = datetime.now() - timedelta(days=days)
+    # We use the Django ORM to fetch recent articles
+    db_articles = DbArticle.objects.filter(updated_at__gte=cutoff)
+    items = []
+    for art in db_articles:
+        items.append(FeedItem(
+            title=art.title,
+            link=art.source_urls[0] if art.source_urls else f"http://db/{art.id}",
+            content=art.content,
+            date=str(art.updated_at),
+            id=None, # Will be assigned in fetch
+            db_id=art.id
+        ))
+    return items
+
 def fetch(max_entries=0, datefilter=datetime.now().date()):
     if progress['stage'] == None:
         progress['stage'] = 'fetch'
@@ -273,15 +311,40 @@ def fetch(max_entries=0, datefilter=datetime.now().date()):
     feed_list = get_feed_list()
     ii = 0
     articles = []
-    try:
-        with open(os.path.join(feeds_dir, 'cache.json'), 'r') as fd:
-            articles_json = json.load(fd)
-            articles = ArticleListModel.validate_json(json.dumps(articles_json))
-    except:
-        pass
+    
+    # Load existing articles from MongoDB
+    raw_articles = RawArticle.objects.all().order_by('feed_id')
+    for ra in raw_articles:
+        articles.append(FeedItem(
+            title=ra.title,
+            link=ra.link,
+            content=ra.content,
+            date=str(ra.published_date) if ra.published_date else "",
+            id=ra.feed_id,
+            db_id=ra.db_id
+        ))
+
     crawled_titles = []
     for article in articles:
         ii = max(ii, int(article.id))
+        # If we are resuming, we might have DB items in cache; track them
+        if article.db_id:
+            crawled_titles.append(article.title)
+
+    # Load context from DB (articles from last 3 days)
+    # This ensures we compare new fetches against recent history
+    if ii == 0: # Only load context if we are starting fresh or cache is empty
+        context_articles = fetch_context_articles(days=3)
+        for ctx_item in context_articles:
+            ii += 1
+            ctx_item.id = ii
+            articles.append(ctx_item)
+            crawled_titles.append(ctx_item.title)
+
+    for article in articles:
+        # Recalculate max ID in case we added context
+        if article.id:
+            ii = max(ii, int(article.id))
         crawled_titles.append(article.title)
 
     for feed in feed_list:
@@ -290,14 +353,19 @@ def fetch(max_entries=0, datefilter=datetime.now().date()):
                 ii += 1
                 feed_item.id = ii
                 articles.append(feed_item)
+                
+                # Save to MongoDB
+                RawArticle.objects.create(
+                    feed_id=feed_item.id,
+                    title=feed_item.title,
+                    link=feed_item.link,
+                    content=feed_item.content,
+                    published_date=parse_date(feed_item.date) if feed_item.date else None,
+                    db_id=feed_item.db_id
+                )
         except:
             logger.info('Exception occurred')
             traceback.print_exc()
-
-    with open(os.path.join(feeds_dir, 'cache.json'), 'wb') as fd:
-        #logger.info(type(ArticleListModel.dump_json(articles, indent=2)))
-        fd.write(ArticleListModel.dump_json(articles, indent=2))
-        #fd.write(json.dumps(articles.json(), indent=2))
 
     
 
@@ -309,19 +377,21 @@ def digest():
         articles = json.load(fd)
     ii = 0
     for article in articles:
-        response = llm.client.chat(model='deepseek-r1:14b', messages=[
+        response = llm.client.chat.completions.create(model=SUMMARY_LLM, messages=[
                         {'role': 'system', 'content': llm.system_prompt},
                         {'role': 'user', 'content': article.content}
                     ],
-                    stream=False,
-                    keep_alive='1m',
-                    options={
-                        'num_ctx': 8196,
-                        'repeat_last_n': 0,
-                        'temperature': 0.5,
+                    temperature=0.5,
+                    extra_body={
+                        'keep_alive': '1m',
+                        'options': {
+                            'num_ctx': 8196,
+                            'repeat_last_n': 0,
+                        },
+                        #'format': LLMSummary.model_json_schema()
                     },
-                    format=LLMSummary.model_json_schema())
-        summary = LLMSummary.model_validate_json(response.message.content)
+                    )
+        summary = LLMSummary.model_validate_json(response.choices[0].message.content)
         ii += 1
         summaries.append({'id': ii,
                             'title': article.title,
@@ -346,19 +416,21 @@ def dedup():
     # Iterate over articles pairwise without repetition
     for ref_article, compare_article in itertools.combinations(summaries, 2):
         llm.system_prompt = llm.system_prompt_template.format(reference_article = ref_article['content'])
-        response = llm.client.chat(model='deepseek-r1:14b', messages=[
+        response = llm.client.chat.completions.create(model=SUMMARY_LLM, messages=[
                             {'role': 'system', 'content': llm.system_prompt},
                             {'role': 'user', 'content': compare_article['content']}
                         ],
-                        stream=False,
-                        keep_alive='1m',
-                        options={
-                            'num_ctx': 8196,
-                            'repeat_last_n': 0,
-                            'temperature': 0.5,
-                        },
-                        format=LLMDedup.model_json_schema())
-        related = LLMDedup.model_validate_json(response.message.content)
+                        temperature=0.5,
+                        extra_body={
+                            'keep_alive': '1m',
+                            'options': {
+                                'num_ctx': 8196,
+                                'repeat_last_n': 0,
+                            },
+                            'format': LLMDedup.model_json_schema()
+                        }
+                        )
+        related = LLMDedup.model_validate_json(response.choices[0].message.content)
         if (related.result == UniqueStatus.related):
             logger.info(f"{compare_article['title']} seems related to {ref_article['title']}")
         else:
@@ -367,29 +439,33 @@ def dedup():
 def rewrite():
     def generate(prompt):
         try:
-            response = llm.client.generate( model='qwen3:14b', 
-                                            system=llm.system_prompt,
-                                            prompt=llm.template.format(prompt=prompt),
-                                            #template=llm.template,
-                                            stream=False,
-                                            keep_alive='10m',
-                                            options={
-                                                'num_ctx': 8196*2,
-                                                'repeat_last_n': 64,
-                                                "temperature": 0.3,
-                                                "seed" : 0,
-                                                "top_k" : 0,
-                                                "top_p" : 0.8,
-                                                "min_p" : 0.1,
-                                                "mirostat": 0,
-                                                "repeat_penalty": 1.05,
-                                                "num_predict": 1024*4,
-                                            },
-                                            format=LLMArticle.model_json_schema())
-            return LLMArticle.model_validate_json(response.response)
+            response = llm.client.chat.completions.create( model=SUMMARY_LLM, 
+                                            messages=[
+                                                {'role': 'system', 'content': llm.system_prompt},
+                                                {'role': 'user', 'content': llm.template.format(prompt=prompt)}
+                                            ],
+                                            temperature=0.3,
+                                            top_p = 0.8,
+                                            seed = 0,
+                                            extra_body={
+                                                'keep_alive': '10m',
+                                                'options': {
+                                                    'num_ctx': 8196*2,
+                                                    'repeat_last_n': 64,
+                                                    "top_k" : 0,
+                                                    "min_p" : 0.1,
+                                                    "mirostat": 0,
+                                                    "repeat_penalty": 1.05,
+                                                    "num_predict": 1024*4,
+                                                },
+                                                #'format': LLMArticle.model_json_schema()
+                                            })
+            print(response)
+            return LLMArticle.model_validate_json(response.choices[0].message.content)
         except:
             logger.error('LLM timedout.')
             response = LLMArticle(title='', content='...')
+            raise
             return response
 
     global rewritten_articles
@@ -397,14 +473,15 @@ def rewrite():
 
     llm = CopyWriterLLM()
 
-    with open(os.path.join(feeds_dir, 'compacted_similarity_ids.json'), 'r') as fd:
-        similarity_data = json.load(fd)
+    # Load clusters from PipelineState
+    state = PipelineState.objects.first()
+    similarity_data = state.clusters if state else []
 
-    with open(os.path.join(feeds_dir, 'cache.json'), 'r') as fd:
-        cache = json.load(fd)
+    # Load articles from DB
+    raw_articles = RawArticle.objects.all()
+    articles = {str(ra.feed_id): {'title': ra.title, 'content': ra.content, 'link': ra.link, 'db_id': ra.db_id} for ra in raw_articles}
 
     # Sort articles by ID and store (id, title, content)
-    articles = { str(article['id']): article for article in cache}
 
     progress['stage'] = 'rewrite'
 
@@ -413,22 +490,56 @@ def rewrite():
 
     article_group = similarity_data[init_outer_index]
     if init_outer_index == 0 and init_inner_index == 0: #empty state
-        reference_content = {'title': articles[str(article_group[init_outer_index])]['title'],
-                            'content': articles[str(article_group[init_outer_index])]['content'],
-                            'urls': [articles[str(article_group[init_outer_index])]['link']]}
+        # Check if the first article is already a DB article
+        first_article = articles[str(article_group[init_outer_index])]
+        
+        reference_content = {'title': first_article['title'],
+                            'content': first_article['content'],
+                            'urls': [first_article['link']],
+                            'keywords': []}
+        
+        if first_article.get('db_id'):
+            reference_content['db_id'] = first_article['db_id']
+            # If it's from DB, ensure we have the full list of URLs if possible, 
+            # though here we only have what FeedItem carried.
+        else:
+            db_obj = DbArticle.objects.create(title=reference_content['title'],
+                                            content=reference_content['content'],
+                                            source_urls=reference_content['urls'])
+            reference_content['db_id'] = db_obj.id
+            
         rewritten_articles.append(reference_content)
     else:
-        reference_content = {'title': rewritten_articles[-1]['title'],
-                            'content': rewritten_articles[-1]['content'],
-                            'urls': rewritten_articles[-1]['urls']}
+        reference_content = rewritten_articles[-1]
+        if 'db_id' not in reference_content:
+             # This should ideally not happen if logic is correct, but safe fallback
+             db_obj = DbArticle.objects.create(
+                title=reference_content['title'],
+                content=reference_content['content'],
+                source_urls=reference_content.get('urls', []),
+                keywords=reference_content.get('keywords', [])
+             )
+             reference_content['db_id'] = db_obj.id
+             rewritten_articles[-1] = reference_content
     for ii in range(init_outer_index, len(similarity_data)):
         article_group = similarity_data[ii]
         
         logger.info(f'Article ID: {article_group[0]}, Number of articles: {len(article_group)}')
         if init_inner_index == 0:
-            reference_content = {'title': articles[str(article_group[0])]['title'],
-                                'content': articles[str(article_group[0])]['content'],
-                                'urls': [articles[str(article_group[0])]['link']]}
+            first_article = articles[str(article_group[0])]
+            reference_content = {'title': first_article['title'],
+                                'content': first_article['content'],
+                                'urls': [first_article['link']],
+                                'keywords': []}
+            
+            if first_article.get('db_id'):
+                reference_content['db_id'] = first_article['db_id']
+            else:
+                db_obj = DbArticle.objects.create(title=reference_content['title'],
+                                                content=reference_content['content'],
+                                                source_urls=reference_content['urls'])
+                reference_content['db_id'] = db_obj.id
+                
             rewritten_articles.append(reference_content)
             logger.info('Updated reference content for new article')
         
@@ -450,7 +561,16 @@ def rewrite():
                         response_content = generate(prompt)
                     reference_content['title'] = response_content.title
                     reference_content['content'] = response_content.content
+                    reference_content['keywords'] = response_content.keywords
                     reference_content['urls'].append(related_article['link'])
+
+                    if 'db_id' in reference_content:
+                        DbArticle.objects.filter(id=reference_content['db_id']).update(
+                            title=reference_content['title'],
+                            content=reference_content['content'],
+                            keywords=reference_content['keywords'],
+                            source_urls=reference_content['urls']
+                        )
 
                     rewritten_articles[-1] = reference_content
                     progress['last_processed_index'] = [ii,jj]
@@ -468,8 +588,7 @@ def rewrite():
 
         init_inner_index = 0 #Reset inner index to that next articles iterate from 0
 
-    with open(os.path.join(feeds_dir, 'rewritten_articles.json'), "w") as json_file:
-        json.dump(rewritten_articles, json_file, indent=4, default=str)
+    save_progress()
 
 
 class UnionFind:
@@ -515,8 +634,9 @@ def build_forest(edges, all_ids):
     return uf.get_components()
 
 def compact():
-    with open(os.path.join(feeds_dir, 'similarity_results_combined.json'), 'r') as fd:
-        similarity_data = json.load(fd)
+    # Load similarity results from DB
+    sim_results = SimilarityResult.objects.all()
+    similarity_data = {str(res.reference_id): {'scores': res.scores} for res in sim_results}
 
     edges = []
     ids = []
@@ -525,27 +645,30 @@ def compact():
         if int(article_id) not in ids:
             ids.append(int(article_id))
         info = similarity_data[article_id]
-        for related_id in info['scores']['LSA']['strong']:
+        # Check if LSA scores exist
+        lsa_scores = info['scores'].get('LSA', {}).get('strong', [])
+        for related_id in lsa_scores:
             if int(article_id) < int(related_id['id']) and (int(article_id), int(related_id['id'])) not in edges:
                 edges.append((int(article_id), int(related_id['id'])))
             elif int(article_id) > int(related_id['id']) and (int(related_id['id']), int(article_id)) not in edges:
                 edges.append((int(related_id['id']), int(article_id)))
     forest = build_forest(edges, set(ids))
 
-    with open(os.path.join(feeds_dir, 'compacted_similarity_ids.json'), 'w') as fd:
-        json.dump(forest, fd, indent=2, default=str)
+    # Save forest to PipelineState
+    state, _ = PipelineState.objects.get_or_create(pk=1)
+    state.clusters = forest
+    state.save()
 
 def load_progress():
     global progress
     global rewritten_articles
     try:
-        if os.path.exists(os.path.join(feeds_dir, 'progress.json')):
-            with open(os.path.join(feeds_dir, 'progress.json'), 'r') as fd:
-                progress = json.load(fd)
-                progress['date'] = datetime.strptime(progress['date'], "%Y-%m-%d %H:%M:%S.%f")
-        if os.path.exists(os.path.join(feeds_dir, 'rewritten_articles.json')):
-            with open(os.path.join(feeds_dir, 'rewritten_articles.json'), 'r') as fd:
-                rewritten_articles = json.load(fd)
+        state = PipelineState.objects.first()
+        if state:
+            progress['stage'] = state.stage
+            progress['last_processed_index'] = state.last_processed_index
+            # We don't strictly need to parse date from DB for logic, but can if needed
+            rewritten_articles = state.rewritten_articles
     except:
         traceback.print_exc()
         pass
@@ -555,25 +678,20 @@ def load_progress():
 def save_progress():
     global progress
     global rewritten_articles
-    with open(os.path.join(feeds_dir, 'rewritten_articles.json'), "w") as json_file:
-        json.dump(rewritten_articles, json_file, indent=4, default=str)
-    with open(os.path.join(feeds_dir, 'progress.json'), "w") as json_file:
-        json.dump(progress, json_file, indent=4, default=str)
+    
+    state, _ = PipelineState.objects.get_or_create(pk=1)
+    state.stage = progress['stage']
+    state.last_processed_index = progress['last_processed_index']
+    state.rewritten_articles = rewritten_articles
+    state.save()
 
 def clear_cache():
     global progress
     global rewritten_articles
     try:
-        if os.path.exists(os.path.join(feeds_dir, 'cache.json')):
-            os.remove(os.path.join(feeds_dir, 'cache.json'))
-        if os.path.exists(os.path.join(feeds_dir, 'similarity_results_combined.json')):
-            os.remove(os.path.join(feeds_dir, 'similarity_results_combined.json'))
-        if os.path.exists(os.path.join(feeds_dir, 'compacted_similarity_ids.json')):
-            os.remove(os.path.join(feeds_dir, 'compacted_similarity_ids.json'))
-        if os.path.exists(os.path.join(feeds_dir, 'progress.json')):
-            os.remove(os.path.join(feeds_dir, 'progress.json'))
-        if os.path.exists(os.path.join(feeds_dir, 'rewritten_articles.json')):
-            os.remove(os.path.join(feeds_dir, 'rewritten_articles.json'))
+        RawArticle.objects.all().delete()
+        SimilarityResult.objects.all().delete()
+        PipelineState.objects.all().delete()
         rewritten_articles = []
     except:
         pass
@@ -589,7 +707,7 @@ def main(datefilter=datetime.now().date()):
         logger.info('Clear cache')
         clear_cache()
 
-    fetch(max_entries=0, datefilter=datefilter)
+    fetch(max_entries=20, datefilter=datefilter)
     if progress['stage'] == 'fetch':
         group_articles()
         progress['stage'] = 'grouped'
@@ -609,6 +727,6 @@ def main(datefilter=datetime.now().date()):
     #digest()
 
 if __name__=="__main__":
-    signal.signal(signal.SIGINT, signal_handler)
+    #signal.signal(signal.SIGINT, signal_handler)
     main()
     

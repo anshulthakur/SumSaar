@@ -3,15 +3,33 @@ FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH="${PYTHONPATH}:/app"
 ENV NLTK_DATA=/usr/share/nltk_data
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Asia/Kolkata
 
 WORKDIR /app
 
+# Install Python 3.12 and build tools
+RUN apt-get update && apt-get install -y \
+    python3-pip \
+    build-essential \
+    python3-dev \
+    libffi-dev \
+    libopenblas-dev \
+    tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
 COPY requirements.txt /tmp/requirements.txt
-RUN pip install -r /tmp/requirements.txt
+RUN pip install --no-cache-dir --prefer-binary --break-system-packages -r /tmp/requirements.txt
 
 COPY nltk_data /usr/share/nltk_data
-RUN pip install celery redis
+RUN pip install --no-cache-dir --break-system-packages celery redis
 
 COPY . /app
 
 WORKDIR /app/sumsaar/webserver
+
+# Control threading
+ENV OMP_NUM_THREADS=8
+ENV OPENBLAS_NUM_THREADS=8
+ENV MKL_NUM_THREADS=8

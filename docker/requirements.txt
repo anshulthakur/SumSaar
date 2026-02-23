@@ -19,3 +19,5 @@ django
 psycopg2-binary
 celery
 redis
+markdown
+django-mongodb-backend

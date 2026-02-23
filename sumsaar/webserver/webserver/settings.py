@@ -89,6 +89,12 @@ DATABASES = {
         'HOST': 'postgres',
         'PORT': '5432',
     }
+    ,
+    'mongo': {
+        'ENGINE': 'django_mongodb_backend',
+        'NAME': 'sumsaar_staging',
+        'CLIENT': {'host': 'mongodb://mongo:27017'},
+    }
 }
 
 
@@ -135,3 +141,4 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 
+DATABASE_ROUTERS = ['sumsaar.webserver.chitrapat.routers.PipelineRouter']

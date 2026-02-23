@@ -19,20 +19,17 @@
                 <article>
                     <h1 class="mb-3">{{ article.title }}</h1>
                     <div class="text-muted mb-4">
-                        Published on {{ article.published_date|date:"F j, Y, g:i a" }}
-                        {% if article.source %} by {{ article.source }}{% endif %}
-                        | <a href="{{ article.url }}" target="_blank">Original Source</a>
+                        Updated on {{ article.updated_at|date:"F j, Y, g:i a" }}
+                        {% if article.source_urls %}
+                        | Sources:
+                        {% for url in article.source_urls %}
+                            <a href="{{ url }}" target="_blank">[{{ forloop.counter }}]</a>
+                        {% endfor %}
+                        {% endif %}
                     </div>
-
-                    {% if article.summary %}
-                    <div class="alert alert-secondary">
-                        <strong>Summary:</strong>
-                        <p class="mb-0">{{ article.summary|linebreaks }}</p>
-                    </div>
-                    {% endif %}
 
                     <div class="article-content mt-4">
-                        {{ article.content|linebreaks }}
+                        {{ article.content_html }}
                     </div>
                 </article>
                 <div class="mt-4 mb-5">

@@ -22,13 +22,9 @@
                 <div class="card">
                     <div class="card-body">
                         <h5 class="card-title"><a href="{% url 'chitrapat:article_detail' article.pk %}" class="text-decoration-none">{{ article.title }}</a></h5>
-                        <h6 class="card-subtitle mb-2 text-muted">{{ article.published_date|date:"F j, Y, g:i a" }} | {{ article.source }}</h6>
+                        <h6 class="card-subtitle mb-2 text-muted">{{ article.updated_at|date:"F j, Y, g:i a" }}</h6>
                         <p class="card-text">
-                            {% if article.summary %}
-                                {{ article.summary|truncatewords:50 }}
-                            {% else %}
-                                {{ article.content|truncatewords:50 }}
-                            {% endif %}
+                            {{ article.content_html|truncatewords_html:50 }}
                         </p>
                         <a href="{% url 'chitrapat:article_detail' article.pk %}" class="card-link">Read more</a>
                     </div>
