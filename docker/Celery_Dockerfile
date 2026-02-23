@@ -25,6 +25,12 @@ RUN pip install --no-cache-dir --prefer-binary --break-system-packages -r /tmp/r
 COPY nltk_data /usr/share/nltk_data
 RUN pip install --no-cache-dir --break-system-packages celery redis
 
+# Pre-download the MiniLM model
+RUN python3 -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')" \
+    && mv /root/.cache/huggingface /opt/huggingface-cache
+ENV HF_HOME=/opt/huggingface-cache
+
+
 COPY . /app
 
 WORKDIR /app/sumsaar/webserver

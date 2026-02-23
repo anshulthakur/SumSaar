@@ -7,6 +7,8 @@ from typing import List, Optional, TypeAlias
 from datetime import datetime
 from bs4 import BeautifulSoup
 import logging
+import re
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -448,6 +450,10 @@ def dedup():
             logger.info(f"{compare_article['title']} is UNRELATED to {ref_article['title']}")
 
 def rewrite():
+    def clean_control_chars(s: str) -> str:
+        # Remove ASCII control characters except \t, \n, \r if you want to keep them
+        return re.sub(r'[\x00-\x1F]', '', s)
+
     def generate(prompt):
         try:
             response = llm.client.chat.completions.create( model=SUMMARY_LLM, 
@@ -472,7 +478,7 @@ def rewrite():
                                                 #'format': LLMArticle.model_json_schema()
                                             })
             print(response)
-            return LLMArticle.model_validate_json(response.choices[0].message.content)
+            return LLMArticle.model_validate_json(clean_control_chars(response.choices[0].message.content))
         except:
             logger.error('LLM timedout.')
             response = LLMArticle(title='', content='...')
@@ -659,8 +665,11 @@ def compact():
             ids.append(int(article_id))
         info = similarity_data[article_id]
         # Check if LSA scores exist
-        lsa_scores = info['scores'].get('LSA', {}).get('strong', [])
-        for related_id in lsa_scores:
+        # lsa_scores = info['scores'].get('LSA', {}).get('strong', [])
+        # for related_id in lsa_scores:
+        # Check if MiniLM scores exist
+        minilm_scores = info['scores'].get('MiniLM', {}).get('strong', [])
+        for related_id in minilm_scores:
             if int(article_id) < int(related_id['id']) and (int(article_id), int(related_id['id'])) not in edges:
                 edges.append((int(article_id), int(related_id['id'])))
             elif int(article_id) > int(related_id['id']) and (int(related_id['id']), int(article_id)) not in edges:

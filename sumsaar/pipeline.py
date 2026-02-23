@@ -13,6 +13,7 @@ from sklearn.decomposition import TruncatedSVD
 import gensim
 from gensim import corpora
 from gensim.models import LdaModel
+from sentence_transformers import SentenceTransformer
 
 from sumsaar.settings import PROJECT_DIRS
 feeds_dir = PROJECT_DIRS.get('runtime')
@@ -169,6 +170,11 @@ def get_lsa_similarity(tfidf_matrix, n_components=100):
     logger.info("Cosine similarity")
     return cosine_similarity(lsa_matrix)
 
+### **MiniLM Embeddings**
+def get_minilm_embeddings(texts):
+    model = SentenceTransformer('all-MiniLM-L6-v2')
+    return model.encode(texts)
+
 ### **Generate Heatmap and Save Image**
 def plot_heatmap(similarity_matrix, method_name):
     plt.figure(figsize=(15, 10))
@@ -230,7 +236,7 @@ def categorize_similarity(similarity_matrix, strong_threshold, medium_threshold)
                 continue
 
             id2, title2, content2 = index_to_metadata[j]
-            similarity_score = round(similarity_matrix[i, j], 4)
+            similarity_score = float(round(similarity_matrix[i, j], 4))
 
             # Assign similarity scores into categories
             if similarity_score >= strong_threshold:
@@ -242,7 +248,7 @@ def categorize_similarity(similarity_matrix, strong_threshold, medium_threshold)
 
 
 ### **Save Final JSON File**
-def save_combined_json(categorized_tfidf, categorized_bow, categorized_jaccard, categorized_lsa, categorized_lda):
+def save_combined_json(categorized_tfidf, categorized_bow, categorized_jaccard, categorized_lsa, categorized_lda, categorized_minilm):
     combined_data = {}
 
     # Merge all similarity methods into one structure
@@ -255,6 +261,7 @@ def save_combined_json(categorized_tfidf, categorized_bow, categorized_jaccard, 
                 "bag-of-words": categorized_bow[article_id]["scores"],
                 "Jaccard": categorized_jaccard[article_id]["scores"],
                 "LSA": categorized_lsa[article_id]["scores"],
+                "MiniLM": categorized_minilm[article_id]["scores"],
                 #"LDA": categorized_lda[article_id]["scores"],
             }
         }
@@ -299,6 +306,11 @@ def group_articles():
     logger.info('LSA Similarity')
     lsa_similarity = get_lsa_similarity(tfidf_matrix)
 
+    # MiniLM
+    logger.info('MiniLM Embeddings')
+    minilm_embeddings = get_minilm_embeddings(article_contents)
+    minilm_similarity = get_similarity(minilm_embeddings)
+
     # Find most similar articles for each entry
     logger.info('Finding most similar articles using TFIDF')
     most_similar_tfidf = find_most_similar(tfidf_similarity)
@@ -319,9 +331,10 @@ def group_articles():
     categorized_bow = categorize_similarity(bow_similarity, strong_threshold=0.85, medium_threshold=0.65)
     categorized_jaccard = categorize_similarity(jaccard_similarity, strong_threshold=0.50, medium_threshold=0.30)
     categorized_lsa = categorize_similarity(lsa_similarity, strong_threshold=0.75, medium_threshold=0.50)
+    categorized_minilm = categorize_similarity(minilm_similarity, strong_threshold=0.75, medium_threshold=0.50)
 
     # Save combined JSON with all similarity methods
-    save_combined_json(categorized_tfidf, categorized_bow, categorized_jaccard, categorized_lsa, categorized_lda)
+    save_combined_json(categorized_tfidf, categorized_bow, categorized_jaccard, categorized_lsa, categorized_lda, categorized_minilm)
 
 
 ### **Main Execution**
@@ -350,6 +363,10 @@ if __name__ == "__main__":
     jaccard_similarity = get_jaccard_similarity(preprocessed_articles)
     lsa_similarity = get_lsa_similarity(tfidf_matrix)
 
+    # MiniLM
+    minilm_embeddings = get_minilm_embeddings(article_contents)
+    minilm_similarity = get_similarity(minilm_embeddings)
+
     # Find most similar articles for each entry
     logger.info('Finding most similar articles using TFIDF')
     most_similar_tfidf = find_most_similar(tfidf_similarity)
@@ -370,9 +387,10 @@ if __name__ == "__main__":
     categorized_bow = categorize_similarity(bow_similarity, strong_threshold=0.85, medium_threshold=0.65)
     categorized_jaccard = categorize_similarity(jaccard_similarity, strong_threshold=0.50, medium_threshold=0.30)
     categorized_lsa = categorize_similarity(lsa_similarity, strong_threshold=0.75, medium_threshold=0.50)
+    categorized_minilm = categorize_similarity(minilm_similarity, strong_threshold=0.75, medium_threshold=0.50)
 
     # Save combined JSON with all similarity methods
-    save_combined_json(categorized_tfidf, categorized_bow, categorized_jaccard, categorized_lsa, categorized_lda)
+    save_combined_json(categorized_tfidf, categorized_bow, categorized_jaccard, categorized_lsa, categorized_lda, categorized_minilm)
 
     # Save results with similarity scores
     # save_similarity_to_csv(most_similar_tfidf, tfidf_similarity, "TF-IDF")
@@ -387,6 +405,27 @@ if __name__ == "__main__":
     # plot_heatmap(bow_similarity, "Bag-of-Words")
     # plot_heatmap(jaccard_similarity, "Jaccard Similarity")
     # plot_heatmap(lsa_similarity, "LSA")
+
+    # # Display Results
+    # tfidf_similarity_df = pd.DataFrame(tfidf_similarity, 
+    #                              columns=["Article 1", "Article 2"], 
+    #                              index=["Article 1", "Article 2"])
+    # logger.info("\nText Similarity Matrix:")
+    # logger.info(tfidf_similarity_df)
+
+    # bow_similarity_df = pd.DataFrame(bow_similarity, 
+    #                              columns=["Article 1", "Article 2"], 
+    #                              index=["Article 1", "Article 2"])
+    # logger.info("\nBag-of-Words Similarity Matrix:")
+    # logger.info(bow_similarity_df)
+
+    # similarity_df = pd.DataFrame({
+    #     "TF-IDF Similarity": [tfidf_similarity[0,1]],
+    #     "Bag-of-Words Similarity": [bow_similarity[0,1]]
+    # })
+
+    # logger.info("\nText Similarity Scores:")
+    # logger.info(similarity_df)
 
     # # Display Results
     # tfidf_similarity_df = pd.DataFrame(tfidf_similarity, 
