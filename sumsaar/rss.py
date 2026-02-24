@@ -461,6 +461,7 @@ def rewrite():
                                             temperature=0.3,
                                             top_p = 0.8,
                                             seed = 0,
+                                            response_format = LLMArticle.model_json_schema(),
                                             extra_body={
                                                 'keep_alive': '10m',
                                                 'options': {
@@ -470,9 +471,8 @@ def rewrite():
                                                     "min_p" : 0.1,
                                                     "mirostat": 0,
                                                     "repeat_penalty": 1.05,
-                                                    "num_predict": 1024*4,
+                                                    "num_predict": 1024*8,
                                                 },
-                                                #'format': LLMArticle.model_json_schema()
                                             })
             print(response)
             return LLMArticle.model_validate_json(clean_control_chars(response.choices[0].message.content))
