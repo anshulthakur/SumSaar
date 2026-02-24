@@ -55,8 +55,6 @@ import traceback
 from sumsaar.pipeline import group_articles
 from collections import defaultdict
 
-rewritten_articles = []
-
 progress = {'date': datetime.today(),
             'stage': None,
             'last_processed_index': [0,0]}
@@ -64,7 +62,6 @@ progress = {'date': datetime.today(),
 import signal, os
 
 def signal_handler(signum, frame):
-    global rewritten_articles
     global progress
     logger.info('Stopping')
     save_progress()
@@ -314,7 +311,7 @@ def fetch_context_articles(days=3):
     return items
 
 def fetch(max_entries=0, datefilter=datetime.now().date()):
-    if progress['stage'] == None:
+    if progress['stage'] == None or progress['stage']=='finished':
         progress['stage'] = 'fetch'
     elif progress['stage'] != 'fetch':
         #Already fetched for the day. Skip
@@ -485,7 +482,6 @@ def rewrite():
             raise
             return response
 
-    global rewritten_articles
     similarity_data = {}
 
     llm = CopyWriterLLM()
@@ -494,12 +490,6 @@ def rewrite():
     state = PipelineState.objects.first()
     similarity_data = state.clusters if state else []
 
-    # Load articles from DB
-    raw_articles = RawArticle.objects.all()
-    articles = {str(ra.feed_id): {'title': ra.title, 'content': ra.content, 'link': ra.link, 'db_id': ra.db_id} for ra in raw_articles}
-
-    # Sort articles by ID and store (id, title, content)
-
     progress['stage'] = 'rewrite'
 
     if len(progress['last_processed_index'])==0:
@@ -507,106 +497,86 @@ def rewrite():
     init_outer_index = progress['last_processed_index'][0]
     init_inner_index = progress['last_processed_index'][1]
 
-    article_group = similarity_data[init_outer_index]
-    if init_outer_index == 0 and init_inner_index == 0: #empty state
-        # Check if the first article is already a DB article
-        first_article = articles[str(article_group[init_outer_index])]
-        
-        reference_content = {'title': first_article['title'],
-                            'content': first_article['content'],
-                            'urls': [first_article['link']],
-                            'keywords': []}
-        
-        if first_article.get('db_id'):
-            reference_content['db_id'] = first_article['db_id']
-            # If it's from DB, ensure we have the full list of URLs if possible, 
-            # though here we only have what FeedItem carried.
-        else:
-            db_obj = DbArticle.objects.create(title=reference_content['title'],
-                                            content=reference_content['content'],
-                                            source_urls=reference_content['urls'])
-            reference_content['db_id'] = db_obj.id
-            
-        rewritten_articles.append(reference_content)
-    else:
-        reference_content = rewritten_articles[-1]
-        if 'db_id' not in reference_content:
-             # This should ideally not happen if logic is correct, but safe fallback
-             db_obj = DbArticle.objects.create(
-                title=reference_content['title'],
-                content=reference_content['content'],
-                source_urls=reference_content.get('urls', []),
-                keywords=reference_content.get('keywords', [])
-             )
-             reference_content['db_id'] = db_obj.id
-             rewritten_articles[-1] = reference_content
     for ii in range(init_outer_index, len(similarity_data)):
         article_group = similarity_data[ii]
         
         logger.info(f'Article ID: {article_group[0]}, Number of articles: {len(article_group)}')
-        if init_inner_index == 0:
-            first_article = articles[str(article_group[0])]
-            reference_content = {'title': first_article['title'],
-                                'content': first_article['content'],
-                                'urls': [first_article['link']],
-                                'keywords': []}
-            
-            if first_article.get('db_id'):
-                reference_content['db_id'] = first_article['db_id']
-            else:
-                db_obj = DbArticle.objects.create(title=reference_content['title'],
-                                                content=reference_content['content'],
-                                                source_urls=reference_content['urls'])
-                reference_content['db_id'] = db_obj.id
-                
-            rewritten_articles.append(reference_content)
-            logger.info('Updated reference content for new article')
-        
-        if len(article_group)>1:
-            if init_inner_index+1 < len(article_group):
-                for jj in range(max(init_inner_index, 1), len(article_group)):
-                    related_id = article_group[jj]
-                    #logger.info('Reference:')
-                    logger.info(reference_content)
 
-                    #logger.info(f'Related: {related_id["id"]}')
-                    related_article = articles[str(related_id)]
-                    #logger.info(related_article)
-                    prompt = f"Article 1: {reference_content['content']}\nArticle 2: {related_article['content']}"
-                    #llm.system_prompt = llm.system_prompt_template.format(reference_article = reference_content['content'])
+        # Get reference article
+        try:
+            first_raw = RawArticle.objects.get(feed_id=article_group[0])
+        except RawArticle.DoesNotExist:
+            logger.error(f"RawArticle {article_group[0]} not found")
+            continue
+
+        db_article = None
+        if first_raw.db_id:
+            try:
+                db_article = DbArticle.objects.get(id=first_raw.db_id)
+            except DbArticle.DoesNotExist:
+                pass
+        
+        if not db_article:
+            db_article = DbArticle.objects.create(
+                title=first_raw.title,
+                content=first_raw.content,
+                source_urls=[first_raw.link]
+            )
+            first_raw.db_id = db_article.id
+            first_raw.save()
+            logger.info(f'Created DbArticle {db_article.id}')
+        else:
+            logger.info(f'Using existing DbArticle {db_article.id}')
+
+        start_jj = 1
+        if ii == init_outer_index:
+            start_jj = max(1, init_inner_index + 1)
+
+        if len(article_group) > 1:
+            for jj in range(start_jj, len(article_group)):
+                related_id = article_group[jj]
+                try:
+                    related_raw = RawArticle.objects.get(feed_id=related_id)
+                except RawArticle.DoesNotExist:
+                    continue
+                
+                # Check if already merged
+                if related_raw.link in db_article.source_urls:
+                    logger.info(f"Skipping {related_id}, already merged.")
+                    continue
+
+                logger.info(f'Merging {related_id} into {db_article.id}')
+                prompt = f"Article 1: {db_article.content}\nArticle 2: {related_raw.content}"
+                
+                try:
                     response_content = generate(prompt)
                     while response_content.content == '...':
                         #Retry
                         response_content = generate(prompt)
-                    reference_content['title'] = response_content.title
-                    reference_content['content'] = response_content.content
-                    reference_content['keywords'] = response_content.keywords
-                    reference_content['urls'].append(related_article['link'])
+                    
+                    db_article.title = response_content.title
+                    db_article.content = response_content.content
+                    db_article.keywords = response_content.keywords
+                    if related_raw.link not in db_article.source_urls:
+                        db_article.source_urls.append(related_raw.link)
+                    db_article.save()
+                    
+                    if not related_raw.db_id:
+                        related_raw.db_id = db_article.id
+                        related_raw.save()
 
-                    if 'db_id' in reference_content:
-                        DbArticle.objects.filter(id=reference_content['db_id']).update(
-                            title=reference_content['title'],
-                            content=reference_content['content'],
-                            keywords=reference_content['keywords'],
-                            source_urls=reference_content['urls']
-                        )
-
-                    rewritten_articles[-1] = reference_content
                     progress['last_processed_index'] = [ii,jj]
+                    save_progress()
+                    logger.info('Rewritten article updated')
+                except Exception as e:
+                    logger.error(f"Error merging articles: {e}")
+                    raise
 
-                    logger.info('Rewritten article:')
-            else:
-                #We've already processed the last article in this group and must move on to the next outer index
-                init_inner_index = 0
-                logger.info('Reset inner index')
-                pass
-            logger.info(reference_content)
-        else:
-            logger.info('Single entry article')
-            progress['last_processed_index'] = [ii,0]
+        progress['last_processed_index'] = [ii + 1, 0]
+        save_progress()
 
-        init_inner_index = 0 #Reset inner index to that next articles iterate from 0
-
+    progress['stage'] = 'finished'
+    progress['last_processed_index'] = [0, 0]
     save_progress()
 
 
@@ -664,9 +634,6 @@ def compact():
         if int(article_id) not in ids:
             ids.append(int(article_id))
         info = similarity_data[article_id]
-        # Check if LSA scores exist
-        # lsa_scores = info['scores'].get('LSA', {}).get('strong', [])
-        # for related_id in lsa_scores:
         # Check if MiniLM scores exist
         minilm_scores = info['scores'].get('MiniLM', {}).get('strong', [])
         for related_id in minilm_scores:
@@ -685,14 +652,11 @@ def compact():
 
 def load_progress():
     global progress
-    global rewritten_articles
     try:
         state = PipelineState.objects.first()
         if state:
             progress['stage'] = state.stage
             progress['last_processed_index'] = state.last_processed_index
-            # We don't strictly need to parse date from DB for logic, but can if needed
-            rewritten_articles = state.rewritten_articles
     except:
         traceback.print_exc()
         pass
@@ -701,30 +665,26 @@ def load_progress():
 
 def save_progress():
     global progress
-    global rewritten_articles
     
     state = PipelineState.objects.first()
     if not state:
         state = PipelineState()
     state.stage = progress['stage']
     state.last_processed_index = progress['last_processed_index']
-    state.rewritten_articles = rewritten_articles
     state.save()
 
 def clear_cache():
     global progress
-    global rewritten_articles
     try:
         RawArticle.objects.all().delete()
         SimilarityResult.objects.all().delete()
         PipelineState.objects.all().delete()
-        rewritten_articles = []
     except:
         pass
     finally:
         progress = {'date': datetime.today(),
                     'stage': None,
-                    'last_processed_index': [0,1]}
+                    'last_processed_index': [0,0]}
 
 
 def main(datefilter=datetime.now().date()):

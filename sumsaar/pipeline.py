@@ -59,13 +59,55 @@ articles = None
 article_contents = None
 index_to_metadata = None 
 
+BLACKLIST_TOPICS = [
+    "lottery results winning numbers",
+    "gambling betting casino",
+    "advertisement promotional sponsored content",
+]
+
+def filter_articles_by_topic(articles_list):
+    if not articles_list:
+        return []
+    
+    logger.info("Filtering blacklisted topics...")
+    try:
+        model = SentenceTransformer('all-MiniLM-L6-v2')
+        topic_embeddings = model.encode(BLACKLIST_TOPICS)
+        
+        # Use title + snippet of content for efficiency and context
+        article_texts = [f"{a['title']} {a['content'][:200]}" for a in articles_list]
+        article_embeddings = model.encode(article_texts)
+        
+        similarities = cosine_similarity(article_embeddings, topic_embeddings)
+        
+        # Threshold for similarity (0.5 implies strong semantic relation)
+        threshold = 0.5 
+        
+        filtered_articles = []
+        removed_count = 0
+        
+        for i, scores in enumerate(similarities):
+            if np.max(scores) < threshold:
+                filtered_articles.append(articles_list[i])
+            else:
+                logger.info(f"Skipping blacklisted: {articles_list[i]['title']} (Score: {np.max(scores):.2f})")
+                removed_count += 1
+        
+        logger.info(f"Filtered {removed_count} articles.")
+        return filtered_articles
+    except Exception as e:
+        logger.error(f"Error in topic filtering: {e}")
+        return articles_list
+
 def load_article_cache():
     global articles
     global article_contents
     global index_to_metadata
 
     raw_articles = RawArticle.objects.all().order_by('feed_id')
-    articles = [{'id': ra.feed_id, 'title': ra.title, 'content': ra.content} for ra in raw_articles]
+    initial_articles = [{'id': ra.feed_id, 'title': ra.title, 'content': ra.content} for ra in raw_articles]
+    
+    articles = filter_articles_by_topic(initial_articles)
 
     # Articles are already sorted by feed_id from DB query
     article_contents = [article['content'] for article in articles]
@@ -260,7 +302,7 @@ def save_combined_json(categorized_tfidf, categorized_bow, categorized_jaccard, 
                 "cosine": categorized_tfidf[article_id]["scores"],
                 "bag-of-words": categorized_bow[article_id]["scores"],
                 "Jaccard": categorized_jaccard[article_id]["scores"],
-                "LSA": categorized_lsa[article_id]["scores"],
+                #"LSA": categorized_lsa[article_id]["scores"],
                 "MiniLM": categorized_minilm[article_id]["scores"],
                 #"LDA": categorized_lda[article_id]["scores"],
             }
@@ -303,8 +345,8 @@ def group_articles():
     bow_similarity = get_similarity(bow_matrix)
     logger.info('Jaccard Similarity')
     jaccard_similarity = get_jaccard_similarity(preprocessed_articles)
-    logger.info('LSA Similarity')
-    lsa_similarity = get_lsa_similarity(tfidf_matrix)
+    # logger.info('LSA Similarity')
+    # lsa_similarity = get_lsa_similarity(tfidf_matrix)
 
     # MiniLM
     logger.info('MiniLM Embeddings')
@@ -318,8 +360,8 @@ def group_articles():
     most_similar_bow = find_most_similar(bow_similarity)
     logger.info('Finding most similar articles using Jaccard')
     most_similar_jaccard = find_most_similar(jaccard_similarity)
-    logger.info('Finding most similar articles using Latent Semantic Analysis')
-    most_similar_lsa = find_most_similar(lsa_similarity)
+    # logger.info('Finding most similar articles using Latent Semantic Analysis')
+    # most_similar_lsa = find_most_similar(lsa_similarity)
 
     # Categorize LDA similarities
     logger.info('Finding most similar articles using Latent Dirichlet Allocation')
@@ -330,11 +372,11 @@ def group_articles():
     categorized_tfidf = categorize_similarity(tfidf_similarity, strong_threshold=0.85, medium_threshold=0.65)
     categorized_bow = categorize_similarity(bow_similarity, strong_threshold=0.85, medium_threshold=0.65)
     categorized_jaccard = categorize_similarity(jaccard_similarity, strong_threshold=0.50, medium_threshold=0.30)
-    categorized_lsa = categorize_similarity(lsa_similarity, strong_threshold=0.75, medium_threshold=0.50)
+    # categorized_lsa = categorize_similarity(lsa_similarity, strong_threshold=0.75, medium_threshold=0.50)
     categorized_minilm = categorize_similarity(minilm_similarity, strong_threshold=0.75, medium_threshold=0.50)
 
     # Save combined JSON with all similarity methods
-    save_combined_json(categorized_tfidf, categorized_bow, categorized_jaccard, categorized_lsa, categorized_lda, categorized_minilm)
+    save_combined_json(categorized_tfidf, categorized_bow, categorized_jaccard, None, categorized_lda, categorized_minilm)
 
 
 ### **Main Execution**
@@ -361,7 +403,7 @@ if __name__ == "__main__":
     tfidf_similarity = get_similarity(tfidf_matrix)
     bow_similarity = get_similarity(bow_matrix)
     jaccard_similarity = get_jaccard_similarity(preprocessed_articles)
-    lsa_similarity = get_lsa_similarity(tfidf_matrix)
+    # lsa_similarity = get_lsa_similarity(tfidf_matrix)
 
     # MiniLM
     minilm_embeddings = get_minilm_embeddings(article_contents)
@@ -374,8 +416,8 @@ if __name__ == "__main__":
     most_similar_bow = find_most_similar(bow_similarity)
     logger.info('Finding most similar articles using Jaccard')
     most_similar_jaccard = find_most_similar(jaccard_similarity)
-    logger.info('Finding most similar articles using Latent Semantic Analysis')
-    most_similar_lsa = find_most_similar(lsa_similarity)
+    # logger.info('Finding most similar articles using Latent Semantic Analysis')
+    # most_similar_lsa = find_most_similar(lsa_similarity)
 
     # Categorize LDA similarities
     logger.info('Finding most similar articles using Latent Dirichlet Allocation')
@@ -386,11 +428,11 @@ if __name__ == "__main__":
     categorized_tfidf = categorize_similarity(tfidf_similarity, strong_threshold=0.85, medium_threshold=0.65)
     categorized_bow = categorize_similarity(bow_similarity, strong_threshold=0.85, medium_threshold=0.65)
     categorized_jaccard = categorize_similarity(jaccard_similarity, strong_threshold=0.50, medium_threshold=0.30)
-    categorized_lsa = categorize_similarity(lsa_similarity, strong_threshold=0.75, medium_threshold=0.50)
+    # categorized_lsa = categorize_similarity(lsa_similarity, strong_threshold=0.75, medium_threshold=0.50)
     categorized_minilm = categorize_similarity(minilm_similarity, strong_threshold=0.75, medium_threshold=0.50)
 
     # Save combined JSON with all similarity methods
-    save_combined_json(categorized_tfidf, categorized_bow, categorized_jaccard, categorized_lsa, categorized_lda, categorized_minilm)
+    save_combined_json(categorized_tfidf, categorized_bow, categorized_jaccard, None, categorized_lda, categorized_minilm)
 
     # Save results with similarity scores
     # save_similarity_to_csv(most_similar_tfidf, tfidf_similarity, "TF-IDF")
