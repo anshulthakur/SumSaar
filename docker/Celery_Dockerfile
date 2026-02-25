@@ -23,7 +23,7 @@ COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir --prefer-binary --break-system-packages -r /tmp/requirements.txt
 
 COPY nltk_data /usr/share/nltk_data
-RUN pip install --no-cache-dir --break-system-packages celery redis
+RUN pip install --no-cache-dir --break-system-packages celery redis pgvector
 
 # Pre-download the MiniLM model
 RUN python3 -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')" \
